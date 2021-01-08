@@ -27,12 +27,13 @@ KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_an
   // Initial guess
   E = (mean_anom < M_PI) ? mean_anom + 0.85 * ecc : mean_anom - 0.85 * ecc;
 
-  // Iterate high order Householder's method for 10 iterations
-  for (int i = 0; i < 10; ++i) {
+  // Iterate high order Householder's method for up to 20 iterations
+  for (int i = 0; i < 20; ++i) {
     sincos(E, sin_ecc_anom, cos_ecc_anom);
 
     gpp = ecc * (*sin_ecc_anom);
     g = E - gpp - mean_anom;
+    if (fabs(g) < 1e-12) break;
     gp = 1 - ecc * (*cos_ecc_anom);
     gppp = 1 - gp;
 
