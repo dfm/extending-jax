@@ -2,7 +2,6 @@
 #define _KEPLER_JAX_KEPLER_H_
 
 #include <cmath>
-#include <cstdint>
 
 namespace kepler_jax {
 

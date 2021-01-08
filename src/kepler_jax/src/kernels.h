@@ -4,6 +4,7 @@
 #include <cuda_runtime_api.h>
 
 #include <cstddef>
+#include <cstdint>
 
 namespace kepler_jax {
 
