@@ -42,6 +42,8 @@ pybind11::dict Registrations() {
   return dict;
 }
 
+}  // namespace
+
 PYBIND11_MODULE(cpu_ops, m) {
   m.def("registrations", &Registrations);
 
@@ -54,5 +56,3 @@ PYBIND11_MODULE(cpu_ops, m) {
     return PackDescriptor(kepler_jax::KeplerDescriptor{dtype, size});
   });
 }
-
-}  // namespace

@@ -20,7 +20,7 @@ if (KEPLER_JAX_CUDA)
     pybind11_add_module(
         gpu_ops
         ${CMAKE_CURRENT_LIST_DIR}/src/kepler_jax/src/kernels.cc.cu
-        ${CMAKE_CURRENT_LIST_DIR}/src/kepler_jax/src/cpu_ops.cc)
+        ${CMAKE_CURRENT_LIST_DIR}/src/kepler_jax/src/gpu_ops.cc)
     install(TARGETS gpu_ops DESTINATION kepler_jax)
 else()
     message(STATUS "Building without CUDA")
