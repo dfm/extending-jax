@@ -48,6 +48,13 @@ KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_an
   }
   // If we get here, we didn't converge
 }
+
+enum Type { F32 = sizeof(float), F64 = sizeof(double) };
+struct KeplerDescriptor {
+  Type dtype;
+  std::int64_t size;
+};
+
 }  // namespace kepler_jax
 
 #endif

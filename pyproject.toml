@@ -1,0 +1,6 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=3.4", "numpy>=1.13.0", "pybind11>=2.6", "cmake"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+write_to = "src/kepler_jax/kepler_jax_version.py"
