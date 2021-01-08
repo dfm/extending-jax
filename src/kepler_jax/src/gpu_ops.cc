@@ -6,18 +6,14 @@ using namespace kepler_jax;
 namespace {
 pybind11::dict Registrations() {
   pybind11::dict dict;
-  dict["gpu_kepler"] = EncapsulateFunction(gpu_kepler);
+  dict["gpu_kepler_f32"] = EncapsulateFunction(gpu_kepler_f32);
+  dict["gpu_kepler_f64"] = EncapsulateFunction(gpu_kepler_f64);
   return dict;
 }
 
 PYBIND11_MODULE(gpu_ops, m) {
   m.def("registrations", &Registrations);
-  pybind11::enum_<Type>(m, "Type")
-      .value("float32", Type::F32)
-      .value("float64", Type::F64)
-      .export_values();
-  m.def("build_kepler_descriptor", [](Type dtype, std::int64_t size) {
-    return PackDescriptor(KeplerDescriptor{dtype, size});
-  });
+  m.def("build_kepler_descriptor",
+        [](std::int64_t size) { return PackDescriptor(KeplerDescriptor{size}); });
 }
 }  // namespace

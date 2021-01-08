@@ -23,7 +23,11 @@ void ThrowIfError(cudaError_t error) {
 }
 
 template <typename T>
-inline void apply_kepler(const std::int64_t size, cudaStream_t stream, void **buffers) {
+inline void apply_kepler(cudaStream_t stream, void **buffers, const char *opaque,
+                         std::size_t opaque_len) {
+  const KeplerDescriptor &d = *UnpackDescriptor<KeplerDescriptor>(opaque, opaque_len);
+  const std::int64_t size = d.size;
+
   const T *mean_anom = reinterpret_cast<const T *>(buffers[0]);
   const T *ecc = reinterpret_cast<const T *>(buffers[1]);
   T *sin_ecc_anom = reinterpret_cast<T *>(buffers[2]);
@@ -39,19 +43,14 @@ inline void apply_kepler(const std::int64_t size, cudaStream_t stream, void **bu
 
 }  // namespace
 
-void gpu_kepler(cudaStream_t stream, void **buffers, const char *opaque, std::size_t opaque_len) {
-  const KeplerDescriptor &d = *UnpackDescriptor<KeplerDescriptor>(opaque, opaque_len);
-  const std::int64_t size = d.size;
+void gpu_kepler_f32(cudaStream_t stream, void **buffers, const char *opaque,
+                    std::size_t opaque_len) {
+  apply_kepler<float>(stream, buffers, opaque, opaque_len);
+}
 
-  // Dispatch based on the data type
-  switch (d.dtype) {
-    case kepler_jax::Type::F32:
-      apply_kepler<float>(size, stream, buffers);
-      break;
-    case kepler_jax::Type::F64:
-      apply_kepler<double>(size, stream, buffers);
-      break;
-  }
+void gpu_kepler_f64(cudaStream_t stream, void **buffers, const char *opaque,
+                    std::size_t opaque_len) {
+  apply_kepler<double>(stream, buffers, opaque, opaque_len);
 }
 
 }  // namespace kepler_jax

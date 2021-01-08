@@ -93,16 +93,18 @@ def _kepler_translation_rule(c, mean_anom, ecc, *, platform="cpu"):
         np.dtype(dtype), dims, tuple(range(len(dims) - 1, -1, -1))
     )
 
+    # We dispatch a different call depending on the dtype
+    if dtype == np.float32:
+        op_name = platform.encode() + b"_kepler_f32"
+    elif dtype == np.float64:
+        op_name = platform.encode() + b"_kepler_f64"
+    else:
+        raise NotImplementedError(f"Unsupported dtype {dtype}")
+
     # And then the following is what changes between the GPU and CPU
     if platform == "cpu":
-        # On the CPU, we dispatch a different call depending on the dtype
-        if dtype == np.float32:
-            op_name = b"cpu_kepler_f32"
-        elif dtype == np.float64:
-            op_name = b"cpu_kepler_f64"
-        else:
-            raise NotImplementedError(f"Unsupported dtype {dtype}")
-
+        # On the CPU, we pass the size of the data as a the first input
+        # argument
         return xops.CustomCallWithLayout(
             c,
             op_name,
@@ -124,26 +126,13 @@ def _kepler_translation_rule(c, mean_anom, ecc, *, platform="cpu"):
                 "The 'kepler_jax' module was not compiled with CUDA support"
             )
 
-        # On the GPU, we do things a little differently and encapsulate both
-        # the dtype and the dimension using the 'opaque' parameter. This isn't
-        # strictly necessary. We could, for example, have different GPU ops
-        # for each dtype like we did for the CPU version, but we would provide
-        # provide the dimensions using the 'opaque' parameter anyways so it
-        # doesn't hurt to do it like this.
-        if dtype == np.float32:
-            xla_dtype = gpu_ops.Type.float32
-        elif dtype == np.float64:
-            xla_dtype = gpu_ops.Type.float64
-        else:
-            raise NotImplementedError(f"Unsupported dtype {dtype}")
+        # On the GPU, we do things a little differently and encapsulate the
+        # dimension using the 'opaque' parameter
+        opaque = gpu_ops.build_kepler_descriptor(size)
 
-        # Build the problem descriptor to be passed using 'opaque' below
-        opaque = gpu_ops.build_kepler_descriptor(xla_dtype, size)
-
-        # Describe the custom call with nearly the same inputs as above
         return xops.CustomCallWithLayout(
             c,
-            b"gpu_kepler",
+            op_name,
             operands=(mean_anom, ecc),
             operand_shapes_with_layout=(shape, shape),
             shape_with_layout=xla_client.Shape.tuple_shape((shape, shape)),
