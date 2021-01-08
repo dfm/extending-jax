@@ -23,7 +23,7 @@ void ThrowIfError(cudaError_t error) {
 }
 
 template <typename T>
-inline void apply_kepler(const std::int64_t size, void **buffers) {
+inline void apply_kepler(const std::int64_t size, cudaStream_t stream, void **buffers) {
   const T *mean_anom = reinterpret_cast<const T *>(buffers[0]);
   const T *ecc = reinterpret_cast<const T *>(buffers[1]);
   T *sin_ecc_anom = reinterpret_cast<T *>(buffers[2]);
@@ -46,10 +46,10 @@ void gpu_kepler(cudaStream_t stream, void **buffers, const char *opaque, std::si
   // Dispatch based on the data type
   switch (d.dtype) {
     case kepler_jax::Type::F32:
-      apply_kepler<float>(size, out);
+      apply_kepler<float>(size, stream, buffers);
       break;
     case kepler_jax::Type::F64:
-      apply_kepler<double>(size, out);
+      apply_kepler<double>(size, stream, buffers);
       break;
   }
 }

@@ -2,7 +2,7 @@
 #define _KEPLER_JAX_KEPLER_H_
 
 #include <cmath>
-#include <iostream>
+#include <cstdint>
 
 namespace kepler_jax {
 
@@ -23,7 +23,7 @@ KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_an
                                                            const Scalar& ecc, Scalar* sin_ecc_anom,
                                                            Scalar* cos_ecc_anom) {
   const Scalar tol = 1.234e-10;
-  Scalar E, ese, g, gp, gpp, gppp, d_3, d_4;
+  Scalar E, g, gp, gpp, gppp, d_3, d_4;
 
   // Initial guess
   E = (mean_anom < M_PI) ? mean_anom + 0.85 * ecc : mean_anom - 0.85 * ecc;
@@ -34,10 +34,7 @@ KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_an
 
     gpp = ecc * (*sin_ecc_anom);
     g = E - gpp - mean_anom;
-    if (fabs(g) < tol) {
-      std::cout << i << "\n";
-      return;
-    }
+    if (fabs(g) < tol) return;
 
     gp = 1 - ecc * (*cos_ecc_anom);
     gppp = 1 - gp;
