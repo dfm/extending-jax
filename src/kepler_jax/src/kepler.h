@@ -24,7 +24,7 @@ struct tolerance {
 
 template <>
 struct tolerance<float> {
-  constexpr static float value = 1e-9;
+  constexpr static float value = 1e-6;
 };
 
 template <typename Scalar>
