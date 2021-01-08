@@ -58,7 +58,7 @@ class CMakeBuildExt(build_ext):
             "-DCMAKE_PREFIX_PATH={}".format(pybind11.get_cmake_dir()),
         ]
         if os.environ.get("KEPLER_JAX_CUDA", "no").lower() == "yes":
-            cmake_args.append("-DKEPLER_JAX_CUDA")
+            cmake_args.append("-DKEPLER_JAX_CUDA=yes")
 
         os.makedirs(self.build_temp, exist_ok=True)
         subprocess.check_call(
