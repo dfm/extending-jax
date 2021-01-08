@@ -66,18 +66,16 @@ class CMakeBuildExt(build_ext):
         # Build all the extensions
         super().build_extensions()
 
+        # Finally run install
+        subprocess.check_call(
+            ["cmake", "--build", ".", "--target", "install"],
+            cwd=self.build_temp,
+        )
+
     def build_extension(self, ext):
         target_name = ext.name.split(".")[-1]
         subprocess.check_call(
-            [
-                "cmake",
-                "--build",
-                ".",
-                "--target",
-                target_name,
-                "--target",
-                "install",
-            ],
+            ["cmake", "--build", ".", "--target", target_name],
             cwd=self.build_temp,
         )
 
