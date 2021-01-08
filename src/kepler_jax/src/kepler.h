@@ -22,20 +22,20 @@ template <typename Scalar>
 KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_anom,
                                                            const Scalar& ecc, Scalar* sin_ecc_anom,
                                                            Scalar* cos_ecc_anom) {
-  const Scalar tol = 1.234e-10;
   Scalar E, g, gp, gpp, gppp, d_3, d_4;
 
   // Initial guess
   E = (mean_anom < M_PI) ? mean_anom + 0.85 * ecc : mean_anom - 0.85 * ecc;
 
-  // Iterate high order Householder's method for a maximum number of steps or until convergence
-  for (int i = 0; i < 200; ++i) {
+  // Iterate high order Householder's method for 10 iterations
+  for (int i = 0; i < 10; ++i) {
     sincos(E, sin_ecc_anom, cos_ecc_anom);
 
     gpp = ecc * (*sin_ecc_anom);
     g = E - gpp - mean_anom;
-    if (fabs(g) < tol) return;
-
+    // if (fabs(g) < tol) {
+    //   return;
+    // }
     gp = 1 - ecc * (*cos_ecc_anom);
     gppp = 1 - gp;
 
