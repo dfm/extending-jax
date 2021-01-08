@@ -3,7 +3,7 @@
 
 pybind11::dict Registrations() {
   pybind11::dict dict;
-  dict["gpu_kepler"] = EncapsulateFunction(kepler_jax::gpu_kepler);
+  dict["gpu_kepler"] = kepler_jax::EncapsulateFunction(kepler_jax::gpu_kepler);
   return dict;
 }
 
