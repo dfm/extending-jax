@@ -32,7 +32,7 @@ KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_an
 
     gpp = ecc * (*sin_ecc_anom);
     g = E - gpp - mean_anom;
-    if (fabs(g) < 1e-12) break;
+    // if (fabs(g) < 1e-12) break;
     gp = 1 - ecc * (*cos_ecc_anom);
     gppp = 1 - gp;
 
