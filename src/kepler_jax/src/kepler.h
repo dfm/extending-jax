@@ -33,9 +33,6 @@ KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_an
 
     gpp = ecc * (*sin_ecc_anom);
     g = E - gpp - mean_anom;
-    // if (fabs(g) < tol) {
-    //   return;
-    // }
     gp = 1 - ecc * (*cos_ecc_anom);
     gppp = 1 - gp;
 
@@ -43,14 +40,7 @@ KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_an
     d_4 = -g / (gp + 0.5 * d_3 * (gpp + d_3 * gppp / 6));
     E -= g / (gp + 0.5 * d_4 * (gpp + d_4 * (gppp / 6 - d_4 * gpp / 24)));
   }
-  // If we get here, we didn't converge
 }
-
-enum Type { F32 = sizeof(float), F64 = sizeof(double) };
-struct KeplerDescriptor {
-  Type dtype;
-  std::int64_t size;
-};
 
 }  // namespace kepler_jax
 

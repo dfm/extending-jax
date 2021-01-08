@@ -4,8 +4,6 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
-#include <type_traits>
-
 #include "kernel_helpers.h"
 
 namespace kepler_jax {
