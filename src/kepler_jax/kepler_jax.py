@@ -32,7 +32,13 @@ xops = xla_client.ops
 # This function exposes the primitive to user code and this is the only
 # public-facing function in this module
 def kepler(mean_anom, ecc):
-    return _kepler_prim.bind(jnp.mod(mean_anom, 2 * np.pi), ecc)
+    return _kepler_unsafe(jnp.mod(mean_anom, 2 * np.pi), ecc)
+
+
+# This "unsafe" version of the op requires input that has already been modded
+# into 0 <= M < 2*pi
+def _kepler_unsafe(mod_mean_anom, ecc):
+    return _kepler_prim.bind(mod_mean_anom, ecc)
 
 
 # Define the primitive
@@ -159,9 +165,9 @@ def _kepler_jvp(args, tangents):
     mean_anom, ecc = args
     d_mean_anom, d_ecc = tangents
 
-    # We use bind here instead of the Kepler function because we don't want
+    # We use the "unsafe" version of the Kepler function because we don't want
     # to mod the mean anomaly again
-    sin_ecc_anom, cos_ecc_anom = _kepler_prim.bind(mean_anom, ecc)
+    sin_ecc_anom, cos_ecc_anom = _kepler_unsafe(mean_anom, ecc)
 
     # Propagate the derivatives
     factor = 1 / (1 - ecc * cos_ecc_anom)
