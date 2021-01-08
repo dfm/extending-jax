@@ -138,7 +138,7 @@ def _kepler_translation_rule(c, mean_anom, ecc, *, platform="cpu"):
             raise NotImplementedError(f"Unsupported dtype {dtype}")
 
         # Build the problem descriptor to be passed using 'opaque' below
-        opaque = cpu_ops.build_kepler_descriptor(xla_dtype, size)
+        opaque = gpu_ops.build_kepler_descriptor(xla_dtype, size)
 
         # Describe the custom call with nearly the same inputs as above
         return xops.CustomCallWithLayout(
