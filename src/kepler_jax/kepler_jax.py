@@ -161,3 +161,42 @@ xla.backend_specific_translations["cpu"][_kepler_prim] = partial(
 xla.backend_specific_translations["gpu"][_kepler_prim] = partial(
     _kepler_translation_rule, platform="gpu"
 )
+
+
+# **********************************
+# *  SUPPORT FOR FORWARD AUTODIFF  *
+# **********************************
+def _kepler_jvp(args, tangents):
+    mean_anom, ecc = args
+    d_mean_anom, d_ecc = tangents
+
+    # We use bind here instead of the Kepler function because we don't want
+    # to mod the mean anomaly again
+    sin_ecc_anom, cos_ecc_anom = _kepler_prim.bind(mean_anom, ecc)
+
+    # Propagate the derivatives
+    factor = 1 / (1 - ecc * cos_ecc_anom)
+    d_ecc_anom = 0
+    if type(d_mean_anom) is not ad.Zero:
+        d_ecc_anom += d_mean_anom * factor
+    if type(d_ecc) is not ad.Zero:
+        d_ecc_anom += d_ecc * sin_ecc_anom * factor
+
+    return (sin_ecc_anom, cos_ecc_anom), (
+        cos_ecc_anom * d_ecc_anom,
+        -sin_ecc_anom * d_ecc_anom,
+    )
+
+
+ad.primitive_jvps[_kepler_prim] = _kepler_jvp
+
+
+# ***********************************
+# *  SUPPORT FOR BATCHING VIA VMAP  *
+# ***********************************
+def _kepler_batch(args, axes):
+    assert axes[0] == axes[1]
+    return kepler(*args), axes
+
+
+batching.primitive_batchers[_kepler_prim] = _kepler_batch
