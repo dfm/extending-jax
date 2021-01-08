@@ -43,21 +43,13 @@ void gpu_kepler(cudaStream_t stream, void **buffers, const char *opaque, std::si
   const KeplerDescriptor &d = *UnpackDescriptor<KeplerDescriptor>(opaque, opaque_len);
   const std::int64_t size = d.size;
 
-  const double *M = reinterpret_cast<const double *>(buffers[0]);
-  const double *ecc = reinterpret_cast<const double *>(buffers[1]);
-  double *cosf = reinterpret_cast<double *>(buffers[2]);
-  double *sinf = reinterpret_cast<double *>(buffers[3]);
-
-  const auto &descriptor = *UnpackDescriptor<SizeDescriptor>(opaque, opaque_len);
-  int N = descriptor.N;
-
   // Dispatch based on the data type
   switch (d.dtype) {
     case kepler_jax::Type::F32:
-      apply_kepler<float>(size, out, in);
+      apply_kepler<float>(size, out);
       break;
     case kepler_jax::Type::F64:
-      apply_kepler<double>(size, out, in);
+      apply_kepler<double>(size, out);
       break;
   }
 }
