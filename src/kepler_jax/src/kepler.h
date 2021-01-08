@@ -17,11 +17,21 @@ inline void sincos(const T& x, T* sx, T* cx) {
 }
 #endif
 
+template <typename T = double>
+struct tolerance {
+  constexpr static T value = T(1e-12);
+};
+
+template <>
+struct tolerance<float> {
+  constexpr static float value = 1e-9;
+};
+
 template <typename Scalar>
 KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_anom,
                                                            const Scalar& ecc, Scalar* sin_ecc_anom,
                                                            Scalar* cos_ecc_anom) {
-  Scalar E, g, gp, gpp, gppp, d_3, d_4;
+  Scalar E, g, gp, gpp, gppp, d_3, d_4, tol = tolerance<Scalar>::value;
 
   // Initial guess
   E = (mean_anom < M_PI) ? mean_anom + 0.85 * ecc : mean_anom - 0.85 * ecc;
@@ -32,7 +42,7 @@ KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_an
 
     gpp = ecc * (*sin_ecc_anom);
     g = E - gpp - mean_anom;
-    // if (fabs(g) < 1e-12) break;
+    if (fabs(g) < tol) break;
     gp = 1 - ecc * (*cos_ecc_anom);
     gppp = 1 - gp;
 
