@@ -29,6 +29,6 @@ pybind11::dict Registrations() {
   return dict;
 }
 
-}  // namespace
-
 PYBIND11_MODULE(cpu_ops, m) { m.def("registrations", &Registrations); }
+
+}  // namespace
