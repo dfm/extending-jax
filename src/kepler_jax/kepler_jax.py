@@ -5,10 +5,9 @@ __all__ = ["kepler"]
 from functools import partial
 
 import numpy as np
-from jax import core
+from jax import dtypes, lax
 from jax import numpy as jnp
-from jax.abstract_arrays import ShapedArray
-from jax.interpreters import ad, batching, xla
+from jax.interpreters import ad, batching, masking, xla
 from jax.lib import xla_client
 
 # Register the CPU XLA custom calls
@@ -32,63 +31,24 @@ xops = xla_client.ops
 # This function exposes the primitive to user code and this is the only
 # public-facing function in this module
 def kepler(mean_anom, ecc):
-    return _kepler_unsafe(jnp.mod(mean_anom, 2 * np.pi), ecc)
-
-
-# This "unsafe" version of the op requires input that has already been modded
-# into 0 <= M < 2*pi
-def _kepler_unsafe(mod_mean_anom, ecc):
-    return _kepler_prim.bind(mod_mean_anom, ecc)
-
-
-# Define the primitive
-_kepler_prim = core.Primitive("kepler")
-
-# It will have multiple outputs (don't set this if your op only has one)
-_kepler_prim.multiple_results = True
-
-# We don't have any implementation besides the XLA version. If you had a
-# simpler implementation (in numpy, for example) you could use that here
-_kepler_prim.def_impl(partial(xla.apply_primitive, _kepler_prim))
+    return _kepler_prim.bind(jnp.mod(mean_anom, 2 * np.pi), ecc)
 
 
 # *********************************
 # *  SUPPORT FOR JIT COMPILATION  *
 # *********************************
 
-# To support JIT compilation, we need 2 pieces:
-
-# (1) An abstract evaluation function to compute the shape and dtype of the
-#     outputs given the shape and dtype of the expected inputs
-@_kepler_prim.def_abstract_eval
-def _kepler_abstract_eval(mean_anom, ecc):
-    if mean_anom.dtype != ecc.dtype:
-        raise ValueError("Data type precision of inputs must match")
-    if mean_anom.shape != ecc.shape:
-        raise ValueError("Dimensions of inputs must match")
-    return (
-        ShapedArray(mean_anom.shape, mean_anom.dtype),
-        ShapedArray(mean_anom.shape, mean_anom.dtype),
-    )
-
-
-# (2) A translation rule to convert the function into an XLA op. In our case
-#     this is the custom XLA op that we've written. We're wrapping two
-#     translation rules into one here: one for the CPU and one for the GPU
+# To support JIT compilation, we need a translation rule to convert the
+# function into an XLA op. In our case this is the custom XLA op that we've
+# written. We're wrapping two translation rules into one here: one for the CPU
+# and one for the GPU
 def _kepler_translation_rule(c, mean_anom, ecc, *, platform="cpu"):
     # The inputs have "shapes" that provide both the shape and the dtype
     mean_anom_shape = c.get_shape(mean_anom)
-    ecc_shape = c.get_shape(ecc)
 
     # Extract the dtype and shape
     dtype = mean_anom_shape.element_type()
     dims = mean_anom_shape.dimensions()
-
-    # Make sure that these match as expected
-    if ecc_shape.element_type() != dtype:
-        raise ValueError("Data type precision of inputs must match")
-    if ecc_shape.dimensions() != dims:
-        raise ValueError("Dimensions of inputs must match")
 
     # The total size of the input is the product across dimensions
     size = np.prod(dims).astype(np.int64)
@@ -150,14 +110,6 @@ def _kepler_translation_rule(c, mean_anom, ecc, *, platform="cpu"):
     )
 
 
-xla.backend_specific_translations["cpu"][_kepler_prim] = partial(
-    _kepler_translation_rule, platform="cpu"
-)
-xla.backend_specific_translations["gpu"][_kepler_prim] = partial(
-    _kepler_translation_rule, platform="gpu"
-)
-
-
 # **********************************
 # *  SUPPORT FOR FORWARD AUTODIFF  *
 # **********************************
@@ -165,9 +117,8 @@ def _kepler_jvp(args, tangents):
     mean_anom, ecc = args
     d_mean_anom, d_ecc = tangents
 
-    # We use the "unsafe" version of the Kepler function because we don't want
-    # to mod the mean anomaly again
-    sin_ecc_anom, cos_ecc_anom = _kepler_unsafe(mean_anom, ecc)
+    # We use "bind" here because we don't want to mod the mean anomaly again
+    sin_ecc_anom, cos_ecc_anom = _kepler_prim.bind(mean_anom, ecc)
 
     # Propagate the derivatives
     factor = 1 / (1 - ecc * cos_ecc_anom)
@@ -183,15 +134,71 @@ def _kepler_jvp(args, tangents):
     )
 
 
+# *********************************************
+# *  BOILERPLATE TO REGISTER THE OP WITH JAX  *
+# *********************************************
+
+# This decorator is copied from jax.lax since this was added recently and not
+# available in older versions
+def _broadcast_translate(translate):
+    def _broadcast_array(array, array_shape, result_shape):
+        if array_shape == result_shape:
+            return array
+        bcast_dims = tuple(
+            range(len(result_shape) - len(array_shape), len(result_shape))
+        )
+        result = xops.BroadcastInDim(array, result_shape, bcast_dims)
+        return result
+
+    def _broadcasted_translation_rule(c, *args, **kwargs):
+        shapes = [c.get_shape(arg).dimensions() for arg in args]
+        result_shape = lax.broadcast_shapes(*shapes)
+        args = [
+            _broadcast_array(arg, arg_shape, result_shape)
+            for arg, arg_shape in zip(args, shapes)
+        ]
+        return translate(c, *args, **kwargs)
+
+    return _broadcasted_translation_rule
+
+
+# Since we have multiple outputs, we need to infer the output dtype based on
+# the inputs
+def _kepler_result_dtype(*args, **kwargs):
+    dtype = dtypes.canonicalize_dtype(args[0].dtype)
+    return (dtype, dtype)
+
+
+# Similarly we will infer the output shapes using broadcasting
+def _kepler_shape_rule(*args, **kwargs):
+    res = lax._broadcasting_shape_rule("kepler", *args, **kwargs)
+    return (res, res)
+
+
+# Define the primitive using the "standard_primitive" helper from jax.lax
+_kepler_prim = lax.standard_primitive(
+    _kepler_shape_rule,
+    partial(
+        lax.naryop_dtype_rule,
+        _kepler_result_dtype,
+        [{np.floating}, {np.floating}],
+        "kepler",
+    ),
+    "kepler",
+    multiple_results=True,
+)
+
+# Connect the XLA translation rules for JIT compilation
+xla.backend_specific_translations["cpu"][_kepler_prim] = _broadcast_translate(
+    partial(_kepler_translation_rule, platform="cpu")
+)
+xla.backend_specific_translations["gpu"][_kepler_prim] = _broadcast_translate(
+    partial(_kepler_translation_rule, platform="gpu")
+)
+
+# Connect the JVP rule for autodiff
 ad.primitive_jvps[_kepler_prim] = _kepler_jvp
 
-
-# ***********************************
-# *  SUPPORT FOR BATCHING VIA VMAP  *
-# ***********************************
-def _kepler_batch(args, axes):
-    assert axes[0] == axes[1]
-    return kepler(*args), axes
-
-
-batching.primitive_batchers[_kepler_prim] = _kepler_batch
+# Add support for simple batching and masking
+batching.defbroadcasting(_kepler_prim)
+masking.defnaryop(_kepler_prim)
