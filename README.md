@@ -91,6 +91,8 @@ the way XLA handles ops with multiple outputs is a little funky.
 
 ## Exposing this op as a JAX primitive
 
+## Testing
+
 ## References
 
 [jax-primitives]: https://jax.readthedocs.io/en/latest/notebooks/How_JAX_primitives_work.html "How primitives work"

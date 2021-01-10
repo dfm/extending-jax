@@ -12,6 +12,10 @@
 
 namespace kepler_jax {
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846264338327950288
+#endif
+
 #ifdef __CUDACC__
 #define KEPLER_JAX_INLINE_OR_DEVICE __host__ __device__
 #else
@@ -24,39 +28,50 @@ inline void sincos(const T& x, T* sx, T* cx) {
 }
 #endif
 
-template <typename T = double>
-struct tolerance {
-  constexpr static T value = T(1e-12);
-};
+template <typename Scalar>
+KEPLER_JAX_INLINE_OR_DEVICE Scalar get_starter(const Scalar& mean_anom, const Scalar& ecc) {
+  // mean_anom must be in the range [0, pi)
+  const Scalar f1 = 3 * M_PI / (M_PI - 6 / M_PI);
+  const Scalar f2 = 1.6 / (M_PI - 6 / M_PI);
+  const Scalar ome = 1 - ecc;
+  const Scalar M2 = mean_anom * mean_anom;
+  const Scalar alpha = f1 + f2 * (M_PI - mean_anom) / (1 + ecc);
+  const Scalar d = 3 * ome + alpha * ecc;
+  const Scalar alphad = alpha * d;
+  const Scalar r = (3 * alphad * (d - ome) + M2) * mean_anom;
+  const Scalar q = 2 * alphad * ome - M2;
+  const Scalar q2 = q * q;
+  const Scalar w = pow(fabs(r) + sqrt(q2 * q + r * r), 2.0 / 3);
+  return (2 * r * w / (w * w + w * q + q2) + mean_anom) / d;
+}
 
-template <>
-struct tolerance<float> {
-  constexpr static float value = 1e-8;
-};
+template <typename Scalar>
+KEPLER_JAX_INLINE_OR_DEVICE Scalar refine_estimate(const Scalar& mean_anom, const Scalar& ecc,
+                                                   const Scalar& E) {
+  Scalar sE, cE;
+  sincos(E, &sE, &cE);
+
+  const Scalar f_2 = ecc * sE;
+  const Scalar f_0 = E - f_2 - mean_anom;
+  const Scalar f_1 = 1 - ecc * cE;
+  const Scalar f_3 = 1 - f_1;
+
+  const Scalar d_3 = -f_0 / (f_1 - 0.5 * f_0 * f_2 / f_1);
+  const Scalar d_4 = -f_0 / (f_1 + 0.5 * d_3 * f_2 + (d_3 * d_3) * f_3 / 6);
+  const Scalar d_42 = d_4 * d_4;
+  const Scalar dE = f_0 / (f_1 + 0.5 * d_4 * f_2 + d_4 * d_4 * f_3 / 6 - d_42 * d_4 * f_2 / 24);
+
+  return E - dE;
+}
 
 template <typename Scalar>
 KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_anom,
                                                            const Scalar& ecc, Scalar* sin_ecc_anom,
                                                            Scalar* cos_ecc_anom) {
-  Scalar E, g, gp, gpp, gppp, d_3, d_4, tol = tolerance<Scalar>::value;
-
-  // Initial guess
-  E = (mean_anom < M_PI) ? mean_anom + 0.85 * ecc : mean_anom - 0.85 * ecc;
-
-  // Iterate high order Householder's method for up to 20 iterations
-  for (int i = 0; i < 20; ++i) {
-    sincos(E, sin_ecc_anom, cos_ecc_anom);
-
-    gpp = ecc * (*sin_ecc_anom);
-    g = E - gpp - mean_anom;
-    if (fabs(g) < tol) break;
-    gp = 1 - ecc * (*cos_ecc_anom);
-    gppp = 1 - gp;
-
-    d_3 = -g / (gp - 0.5 * g * gpp / gp);
-    d_4 = -g / (gp + 0.5 * d_3 * (gpp + d_3 * gppp / 6));
-    E -= g / (gp + 0.5 * d_4 * (gpp + d_4 * (gppp / 6 - d_4 * gpp / 24)));
-  }
+  // mean_anom must be in the range [0, pi) but this is not checked
+  Scalar E = get_starter(mean_anom, ecc);
+  E = refine_estimate(mean_anom, ecc, E);
+  sincos(E, sin_ecc_anom, cos_ecc_anom);
 }
 
 }  // namespace kepler_jax

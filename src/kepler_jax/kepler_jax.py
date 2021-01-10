@@ -7,7 +7,7 @@ from functools import partial
 import numpy as np
 from jax import dtypes, lax
 from jax import numpy as jnp
-from jax.interpreters import ad, batching, masking, xla
+from jax.interpreters import ad, batching, xla
 from jax.lib import xla_client
 
 # Register the CPU XLA custom calls
@@ -34,7 +34,18 @@ def kepler(mean_anom, ecc):
     # We're going to apply array broadcasting here since the logic of our op
     # is much simpler if we require the inputs to all have the same shapes
     mean_anom_, ecc_ = jnp.broadcast_arrays(mean_anom, ecc)
-    return _kepler_prim.bind(jnp.mod(mean_anom_, 2 * np.pi), ecc_)
+
+    # Then we need to wrap into the range [0, pi) keeping track of which
+    # branch we're on
+    M_mod = jnp.mod(mean_anom_, 2 * np.pi)
+    is_high = M_mod > np.pi
+
+    # Run the solver remembering that this requires M in the range [0, pi)
+    sin_ecc_anom, cos_ecc_anom = _kepler_prim.bind(
+        jnp.where(is_high, 2 * np.pi - M_mod, M_mod), ecc_
+    )
+
+    return jnp.where(is_high, -sin_ecc_anom, sin_ecc_anom), cos_ecc_anom
 
 
 # *********************************
@@ -119,6 +130,19 @@ def _kepler_translation_rule(c, mean_anom, ecc, *, platform="cpu"):
 # **********************************
 # *  SUPPORT FOR FORWARD AUTODIFF  *
 # **********************************
+
+# Here we define the differentiation rules using a JVP derived using implicit
+# differentiation of Kepler's equation:
+#
+#  M = E - e * sin(E)
+#  -> dM = dE * (1 - e * cos(E)) - de * sin(E)
+#  -> dE/dM = 1 / (1 - e * cos(E))  and  de/dM = sin(E) / (1 - e * cos(E))
+#
+# In this case we don't need to define a transpose rule in order to support
+# reverse and higher order differentiation since our JVP is linear in the
+# tangents. This might not be true in other applications, so check out the
+# "How JAX primitives work" tutorial in the JAX documentation for more info
+# as necessary.
 def _kepler_jvp(args, tangents):
     mean_anom, ecc = args
     d_mean_anom, d_ecc = tangents
@@ -139,6 +163,18 @@ def _kepler_jvp(args, tangents):
         cos_ecc_anom * d_ecc_anom,
         -sin_ecc_anom * d_ecc_anom,
     )
+
+
+# ************************************
+# *  SUPPORT FOR BATCHING WITH VMAP  *
+# ************************************
+
+# Our op already supports arbitrary dimensions so the batching rule is quite
+# simple. The jax.lax.linalg module includes some example of more complicated
+# batching rules if you need such a thing.
+def _kepler_batch(args, axes):
+    assert axes[0] == axes[1]
+    return kepler(*args), axes
 
 
 # *********************************************
@@ -182,9 +218,6 @@ xla.backend_specific_translations["gpu"][_kepler_prim] = partial(
     _kepler_translation_rule, platform="gpu"
 )
 
-# Connect the JVP rule for autodiff
+# Connect the JVP and batching rules
 ad.primitive_jvps[_kepler_prim] = _kepler_jvp
-
-# Add support for simple batching and masking
-batching.defbroadcasting(_kepler_prim)
-masking.defnaryop(_kepler_prim)
+batching.primitive_batchers[_kepler_prim] = _kepler_batch
