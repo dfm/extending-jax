@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v2
@@ -32,3 +32,9 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -v tests
+
+  cuda:
+    name: CUDA
+    runs-on: ubuntu-latest
+    steps:
+      uses: .github/action
