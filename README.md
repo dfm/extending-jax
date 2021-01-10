@@ -83,7 +83,58 @@ will actually return the sine and cosine of the eccentric anomaly, since that's
 what most high performance versions of this function would return and because
 the way XLA handles ops with multiple outputs is a little funky.
 
+## Summary of the relevant files
+
 ## Defining an XLA custom call on the CPU
+
+As described in the [XLA documentation][xla-custom], the signature for a CPU XLA
+custom call in C++ is:
+
+```c++
+void custom_call(void* out, const void** in);
+```
+
+where, as you might expect, the elements of `in` point to the input values. So,
+in our case, the inputs are an integer giving the dimension of the problem
+`size`, an array with the mean anomalies `mean_anomaly`, and an array of
+eccentricities `ecc`. Therefore, we might parse the input as follows:
+
+```c++
+#include <cstdint>  // int64_t
+
+template <typename T>
+void cpu_kepler(void *out, const void **in) {
+  const std::int64_t size = *reinterpret_cast<const std::int64_t *>(in[0]);
+  const T *mean_anom = reinterpret_cast<const T *>(in[1]);
+  const T *ecc = reinterpret_cast<const T *>(in[2]);
+}
+```
+
+Here we have used a template so that we can support both single and double
+precision version of the op.
+
+The output parameter is somewhat more complicated. If your op only has one
+output, you would access it using
+
+```c++
+T *result = reinterpret_cast<T *>(out);
+```
+
+but when you have multiple outputs, things get a little hairy. In our example,
+we have two outputs, the sine `sin_ecc_anom` and cosine `cos_ecc_anom` of the
+eccentric anomaly. Therefore, our `out` parameter -- even though it looks like a
+`void*` -- is actually a `void**`! Therefore, we will access the output as
+follows:
+
+```c++
+template <typename T>
+void cpu_kepler(void *out_tuple, const void **in) {
+  // ...
+  void **out = reinterpret_cast<void **>(out_tuple);
+  T *sin_ecc_anom = reinterpret_cast<T *>(out[0]);
+  T *cos_ecc_anom = reinterpret_cast<T *>(out[1]);
+}
+```
 
 ## Building & packaging for the CPU
 
