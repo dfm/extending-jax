@@ -1,5 +1,7 @@
 # Extending JAX with custom C++ and CUDA code
 
+[![Tests](https://github.com/dfm/extending-jax/workflows/Tests/badge.svg)](https://github.com/dfm/extending-jax/actions?query=workflow%3ATests)
+
 This repository is meant as a tutorial demonstrating the infrastructure required
 to provide custom ops in JAX when you have an existing implementation in C++
 and, optionally, CUDA. I originally wanted to write this as a blog post, but
