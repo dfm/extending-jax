@@ -35,17 +35,10 @@ def kepler(mean_anom, ecc):
     # is much simpler if we require the inputs to all have the same shapes
     mean_anom_, ecc_ = jnp.broadcast_arrays(mean_anom, ecc)
 
-    # Then we need to wrap into the range [0, pi) keeping track of which
-    # branch we're on
+    # Then we need to wrap into the range [0, 2*pi)
     M_mod = jnp.mod(mean_anom_, 2 * np.pi)
-    is_high = M_mod > np.pi
 
-    # Run the solver remembering that this requires M in the range [0, pi)
-    sin_ecc_anom, cos_ecc_anom = _kepler_prim.bind(
-        jnp.where(is_high, 2 * np.pi - M_mod, M_mod), ecc_
-    )
-
-    return jnp.where(is_high, -sin_ecc_anom, sin_ecc_anom), cos_ecc_anom
+    return _kepler_prim.bind(M_mod, ecc_)
 
 
 # *********************************
