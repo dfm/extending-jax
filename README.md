@@ -85,6 +85,25 @@ the way XLA handles ops with multiple outputs is a little funky.
 
 ## Summary of the relevant files
 
+The files in this repo come in three categories:
+
+1. In the root directory, there are the standard packaging files like a
+   `setup.py` and `pyproject.toml`. Most of this setup is pretty standard, but
+   I'll highlight some of the unique elements in the packaging section below.
+   For example, we'll use a slightly strange combination of PEP-517/518 and
+   CMake to build the extensions. This isn't strictly necessary, but it's the
+   easiest packaging setup that I've been able to put together.
+
+2. Next, the `src/kepler_jax` directory is a Python module with the definition
+   of our JAX primitive roughly following the JAX [How primitives
+   work][jax-primitives] tutorial.
+
+3. Finally, the C++ and CUDA code implementing our XLA op live in the
+   `src/kepler_jax/src` directory. The `pybind11_kernel_helpers.h` and
+   `kernel_helpers.h` headers are boilerplate necessary for building in the
+   interface. The rest of the files include the code specific for this
+   implementation, but I'll describe this in more detail below.
+
 ## Defining an XLA custom call on the CPU
 
 As described in the [XLA documentation][xla-custom], the signature for a CPU XLA
@@ -135,6 +154,27 @@ void cpu_kepler(void *out_tuple, const void **in) {
   T *cos_ecc_anom = reinterpret_cast<T *>(out[1]);
 }
 ```
+
+Then finally, we actually apply the op and the full implementation is:
+
+```c++
+template <typename T>
+void cpu_kepler(void *out_tuple, const void **in) {
+  const std::int64_t size = *reinterpret_cast<const std::int64_t *>(in[0]);
+  const T *mean_anom = reinterpret_cast<const T *>(in[1]);
+  const T *ecc = reinterpret_cast<const T *>(in[2]);
+
+  void **out = reinterpret_cast<void **>(out_tuple);
+  T *sin_ecc_anom = reinterpret_cast<T *>(out[0]);
+  T *cos_ecc_anom = reinterpret_cast<T *>(out[1]);
+
+  for (std::int64_t n = 0; n < size; ++n) {
+    compute_eccentric_anomaly(mean_anom[n], ecc[n], sin_ecc_anom + n, cos_ecc_anom + n);
+  }
+}
+```
+
+and that's it!
 
 ## Building & packaging for the CPU
 
