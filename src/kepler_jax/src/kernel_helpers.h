@@ -1,3 +1,8 @@
+// This header is not specific to our application and you'll probably want something like this
+// for any extension you're building. This includes the infrastructure needed to serialize
+// descriptors that are used with the "opaque" parameter of the GPU custom call. In our example
+// we'll use this parameter to pass the size of our problem.
+
 #ifndef _KEPLER_JAX_KERNEL_HELPERS_H_
 #define _KEPLER_JAX_KERNEL_HELPERS_H_
 

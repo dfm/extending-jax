@@ -31,7 +31,10 @@ xops = xla_client.ops
 # This function exposes the primitive to user code and this is the only
 # public-facing function in this module
 def kepler(mean_anom, ecc):
-    return _kepler_prim.bind(jnp.mod(mean_anom, 2 * np.pi), ecc)
+    # We're going to apply array broadcasting here since the logic of our op
+    # is much simpler if we require the inputs to all have the same shapes
+    mean_anom_, ecc_ = jnp.broadcast_arrays(mean_anom, ecc)
+    return _kepler_prim.bind(jnp.mod(mean_anom_, 2 * np.pi), ecc_)
 
 
 # *********************************
@@ -45,10 +48,13 @@ def kepler(mean_anom, ecc):
 def _kepler_translation_rule(c, mean_anom, ecc, *, platform="cpu"):
     # The inputs have "shapes" that provide both the shape and the dtype
     mean_anom_shape = c.get_shape(mean_anom)
+    ecc_shape = c.get_shape(ecc)
 
     # Extract the dtype and shape
     dtype = mean_anom_shape.element_type()
     dims = mean_anom_shape.dimensions()
+    assert ecc_shape.element_type() == dtype
+    assert ecc_shape.dimensions() == dims
 
     # The total size of the input is the product across dimensions
     size = np.prod(dims).astype(np.int64)
@@ -120,13 +126,14 @@ def _kepler_jvp(args, tangents):
     # We use "bind" here because we don't want to mod the mean anomaly again
     sin_ecc_anom, cos_ecc_anom = _kepler_prim.bind(mean_anom, ecc)
 
+    def zero_tangent(tan, val):
+        return lax.zeros_like_array(val) if type(tan) is ad.Zero else tan
+
     # Propagate the derivatives
-    factor = 1 / (1 - ecc * cos_ecc_anom)
-    d_ecc_anom = 0
-    if type(d_mean_anom) is not ad.Zero:
-        d_ecc_anom += d_mean_anom * factor
-    if type(d_ecc) is not ad.Zero:
-        d_ecc_anom += d_ecc * sin_ecc_anom * factor
+    d_ecc_anom = (
+        zero_tangent(d_mean_anom, mean_anom)
+        + zero_tangent(d_ecc, ecc) * sin_ecc_anom
+    ) / (1 - ecc * cos_ecc_anom)
 
     return (sin_ecc_anom, cos_ecc_anom), (
         cos_ecc_anom * d_ecc_anom,
@@ -138,62 +145,41 @@ def _kepler_jvp(args, tangents):
 # *  BOILERPLATE TO REGISTER THE OP WITH JAX  *
 # *********************************************
 
-# This decorator is copied from jax.lax since this was added recently and not
-# available in older versions
-def _broadcast_translate(translate):
-    def _broadcast_array(array, array_shape, result_shape):
-        if array_shape == result_shape:
-            return array
-        bcast_dims = tuple(
-            range(len(result_shape) - len(array_shape), len(result_shape))
-        )
-        result = xops.BroadcastInDim(array, result_shape, bcast_dims)
-        return result
-
-    def _broadcasted_translation_rule(c, *args, **kwargs):
-        shapes = [c.get_shape(arg).dimensions() for arg in args]
-        result_shape = lax.broadcast_shapes(*shapes)
-        args = [
-            _broadcast_array(arg, arg_shape, result_shape)
-            for arg, arg_shape in zip(args, shapes)
-        ]
-        return translate(c, *args, **kwargs)
-
-    return _broadcasted_translation_rule
+# We require the inputs to have the same shape and we're handling broadcasting
+# in the "user-facing" kepler function above
+def _kepler_shape_rule(mean_anom, ecc):
+    assert mean_anom.shape == ecc.shape
+    return (mean_anom.shape, mean_anom.shape)
 
 
 # Since we have multiple outputs, we need to infer the output dtype based on
-# the inputs
+# the inputs: just return two copies of the input dtype
 def _kepler_result_dtype(*args, **kwargs):
     dtype = dtypes.canonicalize_dtype(args[0].dtype)
     return (dtype, dtype)
 
 
-# Similarly we will infer the output shapes using broadcasting
-def _kepler_shape_rule(*args, **kwargs):
-    res = lax._broadcasting_shape_rule("kepler", *args, **kwargs)
-    return (res, res)
-
+# Combine this result dtype inference method with the "naryop" dtype rule
+# defined by jax.lax. That rule will check that each dtype is valid, require
+# them to match, and then apply the result_dtype function
+_kepler_dtype_rule = partial(
+    lax.naryop_dtype_rule,
+    _kepler_result_dtype,
+    [{np.floating}, {np.floating}],
+    "kepler",
+)
 
 # Define the primitive using the "standard_primitive" helper from jax.lax
 _kepler_prim = lax.standard_primitive(
-    _kepler_shape_rule,
-    partial(
-        lax.naryop_dtype_rule,
-        _kepler_result_dtype,
-        [{np.floating}, {np.floating}],
-        "kepler",
-    ),
-    "kepler",
-    multiple_results=True,
+    _kepler_shape_rule, _kepler_dtype_rule, "kepler", multiple_results=True
 )
 
 # Connect the XLA translation rules for JIT compilation
-xla.backend_specific_translations["cpu"][_kepler_prim] = _broadcast_translate(
-    partial(_kepler_translation_rule, platform="cpu")
+xla.backend_specific_translations["cpu"][_kepler_prim] = partial(
+    _kepler_translation_rule, platform="cpu"
 )
-xla.backend_specific_translations["gpu"][_kepler_prim] = _broadcast_translate(
-    partial(_kepler_translation_rule, platform="gpu")
+xla.backend_specific_translations["gpu"][_kepler_prim] = partial(
+    _kepler_translation_rule, platform="gpu"
 )
 
 # Connect the JVP rule for autodiff

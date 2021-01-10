@@ -1,3 +1,7 @@
+// This file contains the GPU implementation of our op. It's a pretty typical CUDA kernel
+// and I make no promises about the quality of the code or the choices made therein, but
+// it should get the point accross.
+
 #include "kepler.h"
 #include "kernel_helpers.h"
 #include "kernels.h"

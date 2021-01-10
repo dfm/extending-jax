@@ -1,3 +1,10 @@
+// This header defines the actual algorithm for our op. It is reused in cpu_ops.cc and
+// kernels.cc.cu to expose this as a XLA custom call. The details aren't too important
+// except that directly implementing this algorithm as a higher-level JAX function
+// probably wouldn't be very efficient. That being said, this is not meant as a
+// particularly efficient or robust implementation. It's just here to demonstrate the
+// infrastructure required to extend JAX.
+
 #ifndef _KEPLER_JAX_KEPLER_H_
 #define _KEPLER_JAX_KEPLER_H_
 
@@ -24,7 +31,7 @@ struct tolerance {
 
 template <>
 struct tolerance<float> {
-  constexpr static float value = 1e-6;
+  constexpr static float value = 1e-8;
 };
 
 template <typename Scalar>
