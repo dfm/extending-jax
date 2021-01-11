@@ -109,6 +109,20 @@ The files in this repo come in three categories:
 ## Defining an XLA custom call on the CPU
 
 The algorithm for our example problem is is implemented in the `lib/kepler.h`
+header and I won't go into details about the algorithm here, but the main point
+is that this could be an implementation built on any external library that you
+can call from C++ and, if you want to support GPU usage, CUDA. That header file
+includes a single function `compute_eccentric_anomaly` with the following
+signature:
+
+```c++
+template <typename T>
+void compute_eccentric_anomaly(
+   const T& mean_anom, const T& ecc, T* sin_ecc_anom, T* cos_ecc_anom
+);
+```
+
+This is the function that we want to expose to JAX.
 
 As described in the [XLA documentation][xla-custom], the signature for a CPU XLA
 custom call in C++ is:
@@ -159,9 +173,13 @@ void cpu_kepler(void *out_tuple, const void **in) {
 }
 ```
 
-Then finally, we actually apply the op and the full implementation is:
+Then finally, we actually apply the op and the full implementation, which you
+can find in `lib/cpu_ops.cc` is:
 
 ```c++
+// lib/cpu_ops.cc
+#include <cstdint>
+
 template <typename T>
 void cpu_kepler(void *out_tuple, const void **in) {
   const std::int64_t size = *reinterpret_cast<const std::int64_t *>(in[0]);
@@ -182,6 +200,80 @@ and that's it!
 
 ## Building & packaging for the CPU
 
+Now that we have an implementation of our XLA custom call target, we need to
+expose it to JAX. This is done by compiling a CPython module that wraps this
+function as a [`PyCapsule`][capsule] type. This can be done using pybind11,
+Cython, SWIG, or the Python C API directly, but for this example we'll use
+pybind11 since that's what I'm most familiar with. The [LAPACK ops in
+jaxlib][jaxlib-lapack] are implemented using Cython if you'd like to see an
+example of how to do that.
+
+Another choice that I've made is to use [CMake](https://cmake.org) to build the
+extensions. It would be totally possible (and perhaps preferable if you only
+support CPU usage) to stick to just using setuptools directly, but setuptools
+doesn't seem to have great support for compiling CUDA extensions so that's why I
+settled on CMake. In the end, it's not too painful since CMake can be included
+as a build dependency in `pyproject.toml` so users won't have to install it
+separately. Another build option would be to use [bazel](https://bazel.build) to
+compile the code, like the JAX project, but I don't have any experience with it
+so I decided to stick with what I know. _The key point is that we're just
+compiling a regular old Python module so you can use whatever infrastructure
+you're familiar with!_
+
+With these choices out of the way, the boilerplate code required to define the
+interface is, using the `cpu_kepler` function defined in the previous section as
+follows:
+
+```c++
+// lib/cpu_ops.cc
+#include <pybind11/pybind11.h>
+
+// If you're looking for it, this function is actually implemented in
+// lib/pybind11_kernel_helpers.h
+template <typename T>
+pybind11::capsule EncapsulateFunction(T* fn) {
+  return pybind11::capsule((void*)fn, "xla._CUSTOM_CALL_TARGET");
+}
+
+pybind11::dict Registrations() {
+  pybind11::dict dict;
+  dict["cpu_kepler_f32"] = EncapsulateFunction(cpu_kepler<float>);
+  dict["cpu_kepler_f64"] = EncapsulateFunction(cpu_kepler<double>);
+  return dict;
+}
+
+PYBIND11_MODULE(cpu_ops, m) { m.def("registrations", &Registrations); }
+```
+
+In this case, we're exporting a separate function for both single and double
+precision. Another option would be to pass the data type to the function and
+perform the dispatch logic directly in C++, but I find it cleaner to do it like
+this.
+
+With that out of the way, the actual build routine is defined in the following
+files:
+
+- In `./pyproject.toml`, we specify that `pybind11` and `cmake` are required
+  build dependencies and that we'll use `setuptools.build_meta` as the build
+  backend.
+
+- `setup.py` is a pretty typical setup file with a custom class for building the
+  extensions that executes CMake for the actual compilation step. This does
+  include some extra configuration arguments for CMake to make sure that it uses
+  the correct Python libraries and installs the compiled objects to the right
+  place. It might be possible to use something like [scikit-build][scikit-build]
+  to replace this step, but I struggled to get it working.
+
+- Finally, `CMakeLists.txt` defines the build process for CMake using
+  [pybind11's support for CMake builds][pybind11-cmake]. This will also,
+  optionally, build the GPU ops as discussed below.
+
+With these files in place, we can now compile our XLA custom call ops using
+
+```bash
+pip install .
+```
+
 ## Defining an XLA custom call on the GPU
 
 ## Exposing this op as a JAX primitive
@@ -197,3 +289,7 @@ and that's it!
 [keplers-equation]: https://en.wikipedia.org/wiki/Kepler%27s_equation "Kepler's equation"
 [stan-cpp]: https://dfm.io/posts/stan-c++/ "Using external C++ functions with PyStan & radial velocity exoplanets"
 [kepler-h]: https://github.com/dfm/extending-jax/blob/main/lib/kepler.h
+[capsule]: https://docs.python.org/3/c-api/capsule.html "Capsules"
+[jaxlib-lapack]: https://github.com/google/jax/blob/master/jaxlib/lapack.pyx "jax/lapack.pyx"
+[scikit-build]: https://scikit-build.readthedocs.io/ "scikit-build"
+[pybind11-cmake]: https://pybind11.readthedocs.io/en/stable/compiling.html#building-with-cmake "Building with CMake"

@@ -28,12 +28,11 @@ inline void sincos(const T& x, T* sx, T* cx) {
 }
 #endif
 
-template <typename Scalar>
-KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const Scalar& mean_anom,
-                                                           const Scalar& ecc, Scalar* sin_ecc_anom,
-                                                           Scalar* cos_ecc_anom) {
-  const Scalar tol = 1e-12;
-  Scalar g, E = (mean_anom < M_PI) ? mean_anom + 0.85 * ecc : mean_anom - 0.85 * ecc;
+template <typename T>
+KEPLER_JAX_INLINE_OR_DEVICE void compute_eccentric_anomaly(const T& mean_anom, const T& ecc,
+                                                           T* sin_ecc_anom, T* cos_ecc_anom) {
+  const T tol = 1e-12;
+  T g, E = (mean_anom < M_PI) ? mean_anom + 0.85 * ecc : mean_anom - 0.85 * ecc;
   for (int i = 0; i < 20; ++i) {
     sincos(E, sin_ecc_anom, cos_ecc_anom);
     g = E - ecc * (*sin_ecc_anom) - mean_anom;

@@ -7,7 +7,6 @@
 #ifndef _KEPLER_JAX_PYBIND11_KERNEL_HELPERS_H_
 #define _KEPLER_JAX_PYBIND11_KERNEL_HELPERS_H_
 
-#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
 #include "kernel_helpers.h"

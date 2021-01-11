@@ -10,13 +10,12 @@ namespace kepler_jax {
 
 namespace {
 
-template <typename Scalar>
-__global__ void kepler_kernel(std::int64_t size, const Scalar *mean_anom, const Scalar *ecc,
-                              Scalar *sin_ecc_anom, Scalar *cos_ecc_anom) {
+template <typename T>
+__global__ void kepler_kernel(std::int64_t size, const T *mean_anom, const T *ecc, T *sin_ecc_anom,
+                              T *cos_ecc_anom) {
   for (std::int64_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < size;
        idx += blockDim.x * gridDim.x) {
-    compute_eccentric_anomaly<Scalar>(mean_anom[idx], ecc[idx], sin_ecc_anom + idx,
-                                      cos_ecc_anom + idx);
+    compute_eccentric_anomaly<T>(mean_anom[idx], ecc[idx], sin_ecc_anom + idx, cos_ecc_anom + idx);
   }
 }
 
