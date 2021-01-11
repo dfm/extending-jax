@@ -1,5 +1,0 @@
-name: "Compile CUDA extension"
-description: "Check that the CUDA extension compiles"
-runs:
-  using: "docker"
-  image: "Dockerfile"
