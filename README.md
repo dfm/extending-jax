@@ -62,6 +62,24 @@ wanted to start by listing the key resources that I found useful:
    includes good comments most of the time so that's a good place to look if you
    get stuck since folks there might have already faced the issue.
 
+## What is an "op"
+
+In frameworks like JAX (or Theano, or TensorFlow, or PyTorch, to name a few),
+models are defined as a collection of operations or "ops" that can be chained,
+fused, or differentiated in clever ways. For our purposes, an op defines a
+function that knows:
+
+1. how the input and output parameter shapes and types are related,
+2. how to compute the output from a set of inputs, and
+3. how to propagate derivatives using the chain rule.
+
+There are a lot of choices about where you draw the lines around a single op and
+there will be tradeoffs in terms of performance, generality, ease of use, and
+other factors when making these decisions. In my experience, it is often best to
+define the minimal scope ops and then allow your framework of choice to combine
+it efficiently with the rest of your model, but there will always be counter
+examples.
+
 ## Our example application: solving Kepler's equation
 
 In this section I'll describe the application presented in this project. Feel
@@ -84,6 +102,39 @@ differentiation. Unlike in the previously mentioned blog post, our operation
 will actually return the sine and cosine of the eccentric anomaly, since that's
 what most high performance versions of this function would return and because
 the way XLA handles ops with multiple outputs is a little funky.
+
+## The cost/benefit analysis
+
+One important question to answer first is: "should I actually write a custom JAX
+extension?" If you're here, you've probably already thought about that, but I
+wanted to emphasize a few points to consider.
+
+1. **Performance**: The main reason why you might want to implement a custom op
+   for JAX is performance. JAX's JIT compiler can get great performance in a
+   broad range of applications, but for some of the problems I work on,
+   finely-tuned C++ can be much faster. In my experience, iterative algorithms,
+   other special functions, or code with complicated logic are all examples of
+   places where a custom op might greatly improve performance. I'm not always
+   good at doing this, but it's probably worth benchmarking performance of a
+   version of your code implemented directly in high-level JAX against your
+   custom op.
+
+2. **Autodiff**: One thing that is important to realize is that the extension
+   that we write won't magically know how to propagate derivatives. Instead,
+   we'll be required to provide a JAX interface for applying the chain rule to
+   out op. In other words, if you're setting out to wrap that huge Fortran
+   library that has been passed down through the generations, the payoff might
+   not be as great as you hoped unless (a) the code already provides operations
+   for propagating derivatives (in which case you JAX op probably won't support
+   second and higher order differentiation), or (b) you can easily compute the
+   differentiation rules using the algorithm that you already have (which is the
+   case we have for our example application here). In my work, I try (sometimes
+   unsuccessfully) to identify the minimum number and size of ops that I can get
+   away with and then implement most of my models directly in JAX. In our demo
+   application, for example, I could have chosen to make an XLA op generating a
+   full radial velocity model, instead of just solving Kepler's equation, and
+   that might (or might not) give better performance. But, the differentiation
+   rules are _much_ simpler the way it is implemented.
 
 ## Summary of the relevant files
 
