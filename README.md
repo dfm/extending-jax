@@ -286,21 +286,32 @@ reproduce all of that here. Instead I'll summarize the key points and then
 provide the missing part. If you haven't already, you should definitely read
 that tutorial before getting started on this part.
 
-In summary, we will define a `jax.core.Primitive` object called `_kepler_prim`
-with an "abstract evaluation" rule (see `src/kepler_jax/kepler_jax.py` for all
-the details) following the primitives tutorial. Then, we'll add a "translation
-rule" and a "JVP rule". We're lucky in this case, and we don't need to add a
-"transpose rule", since JAX can actually work that out by itself (our JVP is
-linear in the tangents).
+In summary, we will define a `jax.core.Primitive` object with an "abstract
+evaluation" rule (see `src/kepler_jax/kepler_jax.py` for all the details)
+following the primitives tutorial. Then, we'll add a "translation rule" and a
+"JVP rule". We're lucky in this case, and we don't need to add a "transpose
+rule", since JAX can actually work that out by itself (our JVP is linear in the
+tangents).
 
-The **translation rule** is defined roughly as follows (the one you'll find in
-the source code is a little more complicated since it supports both CPU and GPU
-translation):
+Before defining these rules, we need to register the custom call target with
+JAX. To do that, we import our compiled `cpu_ops` extension module from above
+and use the `registrations` dictionary that we defined:
+
+```python
+from jax.lib import xla_client
+from kepler_jax import cpu_ops
+
+for _name, _value in cpu_ops.registrations().items():
+    xla_client.register_cpu_custom_call_target(_name, _value)
+```
+
+Then, the **translation rule** is defined roughly as follows (the one you'll
+find in the source code is a little more complicated since it supports both CPU
+and GPU translation):
 
 ```python
 # src/kepler_jax/kepler_jax.py
 import numpy as np
-from jax.lib import xla_client
 
 def _kepler_translation_rule(c, mean_anom, ecc):
     # The inputs have "shapes" that provide both the shape and the dtype
@@ -357,7 +368,8 @@ as I can tell:
   translation rule was called.
 
 - The second argument is the name (as `bytes`!) that you gave your `PyCapsule`
-  in the `Registrations` dictionary in `lib/cpu_ops.cc`.
+  in the `registrations` dictionary in `lib/cpu_ops.cc`. You can check what
+  names your capsules had by looking at `cpu_ops.registrations().keys()`.
 
 - Then, the following arguments give the input arguments, and the "shapes" of
   the input and output arrays. In this context, a "shape" is specified by a data
