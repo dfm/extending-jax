@@ -367,7 +367,7 @@ and GPU translation):
 # src/kepler_jax/kepler_jax.py
 import numpy as np
 
-def _kepler_translation_rule(c, mean_anom, ecc):
+def _kepler_cpu_translation(c, mean_anom, ecc):
     # The inputs have "shapes" that provide both the shape and the dtype
     mean_anom_shape = c.get_shape(mean_anom)
     ecc_shape = c.get_shape(ecc)
@@ -411,6 +411,8 @@ def _kepler_translation_rule(c, mean_anom, ecc):
         # The output shapes:
         shape_with_layout=xla_client.Shape.tuple_shape((shape, shape)),
     )
+
+xla.backend_specific_translations["cpu"][_kepler_prim] = _kepler_cpu_translation
 ```
 
 There appears to be a lot going on here, but most of it is just typechecking.
@@ -443,11 +445,13 @@ issue if anything isn't clear.
 ## Defining an XLA custom call on the GPU
 
 The custom call on the GPU isn't terribly different from the CPU version above,
-but the syntax is somewhat different and, since we need to compile and link CUDA
-code, there are a few more packaging steps. The description in this section is a
-little all over the place, but the key files to look at to get more info are (a)
-`lib/gpu_ops.cc` for the dispatch functions called from Python, and (b)
-`lib/kernels.cc.cu` for the CUDA code implementing the kernel.
+but the syntax is somewhat different and there's a heck of a lot more
+boilerplate required. Since we need to compile and link CUDA code, there are
+also a few more packaging steps, but we'll get to that in the next section. The
+description in this section is a little all over the place, but the key files to
+look at to get more info are (a) `lib/gpu_ops.cc` for the dispatch functions
+called from Python, and (b) `lib/kernels.cc.cu` for the CUDA code implementing
+the kernel.
 
 The signature for the GPU custom call is:
 
@@ -597,9 +601,74 @@ __global__ void kepler_kernel(
 }
 ```
 
+## Building & packaging for the GPU
+
+Since we're already using CMake to build our project, it's not too hard to add
+support for CUDA. I've chosen to enable GPU builds by the environment variable
+`KEPLER_JAX_CUDA=yes` that you'll see in both `setup.py` and `CMakeLists.txt`.
+Other than conditionally adding an `Extension` in `setup.py`, everything else on
+the Python side is the same. In `CMakeLists.txt`, we also add a conditional:
+
+```cmake
+if (KEPLER_JAX_CUDA)
+  enable_language(CUDA)
+  # ...
+else()
+  message(STATUS "Building without CUDA")
+endif()
+```
+
+Then, to expose this to JAX, we need to update the translation rule from above as follows:
+
+```python
+# src/kepler_jax/kepler_jax.py
+import numpy as np
+from jax.lib import xla_client
+from kepler_jax import gpu_ops
+
+for _name, _value in gpu_ops.registrations().items():
+    xla_client.register_custom_call_target(_name, _value, platform="gpu")
+
+def _kepler_gpu_translation(c, mean_anom, ecc):
+    # Most of this function is the same as the CPU version above...
+
+    # The name of the op is now prefaced with 'gpu' (our choice, see lib/gpu_ops.cc,
+    # not a requirement)
+    if dtype == np.float32:
+        op_name = b"gpu_kepler_f32"
+    elif dtype == np.float64:
+        op_name = b"gpu_kepler_f64"
+    else:
+        raise NotImplementedError(f"Unsupported dtype {dtype}")
+
+    # We need to serialize the array size using a descriptor
+    opaque = gpu_ops.build_kepler_descriptor(size)
+
+    # The syntax is *almost* the same as the CPU version, but we need to pass the
+    # size using 'opaque' rather than as an input
+    return xla_client.ops.CustomCallWithLayout(
+        c,
+        op_name,
+        operands=(mean_anom, ecc),
+        operand_shapes_with_layout=(shape, shape),
+        shape_with_layout=xla_client.Shape.tuple_shape((shape, shape)),
+        opaque=opaque,
+    )
+
+xla.backend_specific_translations["gpu"][_kepler_prim] = _kepler_gpu_translation
+```
+
+Otherwise, everything else from our CPU implementation doesn't need to change.
+
 ## Testing
 
-Coming soon.
+As usual, you should always test your code and this repo includes some unit
+tests in the `tests` directory for inspiration. You can also see an example of
+how to run these tests using the GitHub Actions CI service and the workflow in
+`.github/workflows/tests.yml`. I don't know of any public CI servers that
+provide GPU support, but I do include a test to confirm that the GPU ops can be
+compiled. You can see the infrastructure for that test in the `.github/action`
+directory.
 
 ## References
 

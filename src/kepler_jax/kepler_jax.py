@@ -200,8 +200,9 @@ _kepler_dtype_rule = partial(
 
 # Define the primitive using the "standard_primitive" helper from jax.lax
 _kepler_prim = lax.standard_primitive(
-    _kepler_shape_rule, _kepler_dtype_rule, "kepler", multiple_results=True
+    _kepler_shape_rule, _kepler_dtype_rule, "kepler"
 )
+_kepler_prim.multiple_results = True
 
 # Connect the XLA translation rules for JIT compilation
 xla.backend_specific_translations["cpu"][_kepler_prim] = partial(
