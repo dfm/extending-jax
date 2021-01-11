@@ -670,6 +670,15 @@ provide GPU support, but I do include a test to confirm that the GPU ops can be
 compiled. You can see the infrastructure for that test in the `.github/action`
 directory.
 
+## See this in action
+
+To demo the use of this custom op, I put together a notebook, based on [an
+example from the exoplanet docs][exoplanet-tutorial]. You can see this notebook
+in the `demo.ipynb` file in the root of this repository or open it on Google
+Colab:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dfm/extending-jax/blob/main/demo.ipynb)
+
 ## References
 
 [jax-primitives]: https://jax.readthedocs.io/en/latest/notebooks/How_JAX_primitives_work.html "How primitives work"
@@ -683,3 +692,4 @@ directory.
 [jaxlib-lapack]: https://github.com/google/jax/blob/master/jaxlib/lapack.pyx "jax/lapack.pyx"
 [scikit-build]: https://scikit-build.readthedocs.io/ "scikit-build"
 [pybind11-cmake]: https://pybind11.readthedocs.io/en/stable/compiling.html#building-with-cmake "Building with CMake"
+[exoplanet-tutorial]: https://docs.exoplanet.codes/en/stable/tutorials/intro-to-pymc3/#A-more-realistic-example:-radial-velocity-exoplanets "A more realistic example: radial velocity exoplanets"
