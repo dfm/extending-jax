@@ -5,10 +5,11 @@ __all__ = ["kepler"]
 from functools import partial
 
 import numpy as np
-from jax import dtypes, lax
 from jax import numpy as jnp
-from jax.interpreters import ad, batching, xla
 from jax.lib import xla_client
+from jax import core, dtypes, lax
+from jax.interpreters import ad, batching, xla
+from jax.abstract_arrays import ShapedArray
 
 # Register the CPU XLA custom calls
 from . import cpu_ops
@@ -45,11 +46,20 @@ def kepler(mean_anom, ecc):
 # *  SUPPORT FOR JIT COMPILATION  *
 # *********************************
 
-# To support JIT compilation, we need a translation rule to convert the
-# function into an XLA op. In our case this is the custom XLA op that we've
-# written. We're wrapping two translation rules into one here: one for the CPU
-# and one for the GPU
-def _kepler_translation_rule(c, mean_anom, ecc, *, platform="cpu"):
+# For JIT compilation we need a function to evaluate the shape and dtype of the
+# outputs of our op for some given inputs
+def _kepler_abstract(mean_anom, ecc):
+    shape = mean_anom.shape
+    dtype = dtypes.canonicalize_dtype(mean_anom.dtype)
+    assert dtypes.canonicalize_dtype(ecc.dtype) == dtype
+    assert ecc.shape == shape
+    return (ShapedArray(shape, dtype), ShapedArray(shape, dtype))
+
+
+# We also need a translation rule to convert the function into an XLA op. In
+# our case this is the custom XLA op that we've written. We're wrapping two
+# translation rules into one here: one for the CPU and one for the GPU
+def _kepler_translation(c, mean_anom, ecc, *, platform="cpu"):
     # The inputs have "shapes" that provide both the shape and the dtype
     mean_anom_shape = c.get_shape(mean_anom)
     ecc_shape = c.get_shape(ecc)
@@ -173,43 +183,17 @@ def _kepler_batch(args, axes):
 # *********************************************
 # *  BOILERPLATE TO REGISTER THE OP WITH JAX  *
 # *********************************************
-
-# We require the inputs to have the same shape and we're handling broadcasting
-# in the "user-facing" kepler function above
-def _kepler_shape_rule(mean_anom, ecc):
-    assert mean_anom.shape == ecc.shape
-    return (mean_anom.shape, mean_anom.shape)
-
-
-# Since we have multiple outputs, we need to infer the output dtype based on
-# the inputs: just return two copies of the input dtype
-def _kepler_result_dtype(*args, **kwargs):
-    dtype = dtypes.canonicalize_dtype(args[0].dtype)
-    return (dtype, dtype)
-
-
-# Combine this result dtype inference method with the "naryop" dtype rule
-# defined by jax.lax. That rule will check that each dtype is valid, require
-# them to match, and then apply the result_dtype function
-_kepler_dtype_rule = partial(
-    lax.naryop_dtype_rule,
-    _kepler_result_dtype,
-    [{np.floating}, {np.floating}],
-    "kepler",
-)
-
-# Define the primitive using the "standard_primitive" helper from jax.lax
-_kepler_prim = lax.standard_primitive(
-    _kepler_shape_rule, _kepler_dtype_rule, "kepler"
-)
+_kepler_prim = core.Primitive("kepler")
 _kepler_prim.multiple_results = True
+_kepler_prim.def_impl(partial(xla.apply_primitive, _kepler_prim))
+_kepler_prim.def_abstract_eval(_kepler_abstract)
 
 # Connect the XLA translation rules for JIT compilation
 xla.backend_specific_translations["cpu"][_kepler_prim] = partial(
-    _kepler_translation_rule, platform="cpu"
+    _kepler_translation, platform="cpu"
 )
 xla.backend_specific_translations["gpu"][_kepler_prim] = partial(
-    _kepler_translation_rule, platform="gpu"
+    _kepler_translation, platform="gpu"
 )
 
 # Connect the JVP and batching rules
