@@ -325,9 +325,12 @@ With these files in place, we can now compile our XLA custom call ops using
 pip install .
 ```
 
-## Defining an XLA custom call on the GPU
-
-Coming soon.
+The final thing that I wanted to reiterate in this section is that
+`kepler_jax.cpu_ops` is just a regular old CPython extension module, so anything
+that you already know about packaging C extensions or any other resources that
+you can find on that topic can be applied. This wasn't obvious when I first
+started learning about this so I definitely went down some rabbit holes that
+hopefully you can avoid.
 
 ## Exposing this op as a JAX primitive
 
@@ -436,6 +439,163 @@ I'm not going to talk about the **JVP rule** here since it's quite problem
 specific, but I've tried to comment the code reasonably thoroughly so check out
 the code in `src/kepler_jax/kepler_jax.py` if you're interested, and open an
 issue if anything isn't clear.
+
+## Defining an XLA custom call on the GPU
+
+The custom call on the GPU isn't terribly different from the CPU version above,
+but the syntax is somewhat different and, since we need to compile and link CUDA
+code, there are a few more packaging steps. The description in this section is a
+little all over the place, but the key files to look at to get more info are (a)
+`lib/gpu_ops.cc` for the dispatch functions called from Python, and (b)
+`lib/kernels.cc.cu` for the CUDA code implementing the kernel.
+
+The signature for the GPU custom call is:
+
+```c++
+// lib/kernels.cc.cu
+template <typename T>
+void gpu_kepler(
+  cudaStream_t stream, void **buffers, const char *opaque, std::size_t opaque_len
+);
+```
+
+The first parameter is a CUDA stream, which I won't talk about at all because I
+don't really know very much about GPU programming and we don't really need to
+worry about it for now. Then you'll notice that the inputs and outputs are all
+provided as a single `void**` buffer. These will be ordered such that our access
+code from above is replaced by:
+
+```c++
+// lib/kernels.cc.cu
+template <typename T>
+void gpu_kepler(
+  cudaStream_t stream, void **buffers, const char *opaque, std::size_t opaque_len
+) {
+  const T *mean_anom = reinterpret_cast<const T *>(buffers[0]);
+  const T *ecc = reinterpret_cast<const T *>(buffers[1]);
+  T *sin_ecc_anom = reinterpret_cast<T *>(buffers[2]);
+  T *cos_ecc_anom = reinterpret_cast<T *>(buffers[3]);
+}
+```
+
+where you might notice that the `size` parameter is no longer one of the inputs.
+Instead the array size is passed using the `opaque` parameter since its value is
+required on the CPU and within the GPU kernel (see the [XLA custom
+calls][xla-custom] documentation for more details). To use this `opaque`
+parameter, we will define a type to hold `size`:
+
+```c++
+// lib/kernels.h
+struct KeplerDescriptor {
+  std::int64_t size;
+};
+```
+
+and then the following boilerplate to serialize it:
+
+```c++
+// lib/kernel_helpers.h
+#include <string>
+
+// Note that bit_cast is only available in recent C++ standards so you might need
+// to provide a shim like the one in lib/kernel_helpers.h
+template <typename T>
+std::string PackDescriptorAsString(const T& descriptor) {
+  return std::string(bit_cast<const char*>(&descriptor), sizeof(T));
+}
+
+// lib/pybind11_kernel_helpers.h
+#include <pybind11/pybind11.h>
+
+template <typename T>
+pybind11::bytes PackDescriptor(const T& descriptor) {
+  return pybind11::bytes(PackDescriptorAsString(descriptor));
+}
+```
+
+This serialization procedure should then be exposed in the Python module using:
+
+```c++
+// lib/gpu_ops.cc
+#include <pybind11/pybind11.h>
+
+PYBIND11_MODULE(gpu_ops, m) {
+  // ...
+  m.def("build_kepler_descriptor",
+        [](std::int64_t size) {
+          return PackDescriptor(KeplerDescriptor{size});
+        });
+}
+```
+
+Then, to deserialize this descriptor, we can use the following procedure:
+
+```c++
+// lib/kernel_helpers.h
+template <typename T>
+const T* UnpackDescriptor(const char* opaque, std::size_t opaque_len) {
+  if (opaque_len != sizeof(T)) {
+    throw std::runtime_error("Invalid opaque object size");
+  }
+  return bit_cast<const T*>(opaque);
+}
+
+// lib/kernels.cc.cu
+template <typename T>
+void gpu_kepler(
+  cudaStream_t stream, void **buffers, const char *opaque, std::size_t opaque_len
+) {
+  // ...
+  const KeplerDescriptor &d = *UnpackDescriptor<KeplerDescriptor>(opaque, opaque_len);
+  const std::int64_t size = d.size;
+}
+```
+
+Once we have these parameters, the full procedure for launching the CUDA kernel
+is:
+
+```c++
+// lib/kernels.cc.cu
+template <typename T>
+void gpu_kepler(
+  cudaStream_t stream, void **buffers, const char *opaque, std::size_t opaque_len
+) {
+  const T *mean_anom = reinterpret_cast<const T *>(buffers[0]);
+  const T *ecc = reinterpret_cast<const T *>(buffers[1]);
+  T *sin_ecc_anom = reinterpret_cast<T *>(buffers[2]);
+  T *cos_ecc_anom = reinterpret_cast<T *>(buffers[3]);
+  const KeplerDescriptor &d = *UnpackDescriptor<KeplerDescriptor>(opaque, opaque_len);
+  const std::int64_t size = d.size;
+
+  // Select block sizes, etc., no promises that these numbers are the right choices
+  const int block_dim = 128;
+  const int grid_dim = std::min<int>(1024, (size + block_dim - 1) / block_dim);
+
+  // Launch the kernel
+  kepler_kernel<T>
+      <<<grid_dim, block_dim, 0, stream>>>(size, mean_anom, ecc, sin_ecc_anom, cos_ecc_anom);
+
+  cudaError_t error = cudaGetLastError();
+  if (error != cudaSuccess) {
+    throw std::runtime_error(cudaGetErrorString(error));
+  }
+}
+```
+
+Finally, the kernel itself is relatively simple:
+
+```c++
+// lib/kernels.cc.cu
+template <typename T>
+__global__ void kepler_kernel(
+  std::int64_t size, const T *mean_anom, const T *ecc, T *sin_ecc_anom, T *cos_ecc_anom
+) {
+  for (std::int64_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < size;
+       idx += blockDim.x * gridDim.x) {
+    compute_eccentric_anomaly<T>(mean_anom[idx], ecc[idx], sin_ecc_anom + idx, cos_ecc_anom + idx);
+  }
+}
+```
 
 ## Testing
 
