@@ -142,10 +142,9 @@ def _kepler_translation(c, mean_anom, ecc, *, platform="cpu"):
 #  -> dE/dM = 1 / (1 - e * cos(E))  and  de/dM = sin(E) / (1 - e * cos(E))
 #
 # In this case we don't need to define a transpose rule in order to support
-# reverse and higher order differentiation since our JVP is linear in the
-# tangents. This might not be true in other applications, so check out the
-# "How JAX primitives work" tutorial in the JAX documentation for more info
-# as necessary.
+# reverse and higher order differentiation. This might not be true in other
+# applications, so check out the "How JAX primitives work" tutorial in the JAX
+# documentation for more info as necessary.
 def _kepler_jvp(args, tangents):
     mean_anom, ecc = args
     d_mean_anom, d_ecc = tangents
