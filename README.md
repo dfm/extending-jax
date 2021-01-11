@@ -100,13 +100,15 @@ The files in this repo come in three categories:
    of our JAX primitive roughly following the JAX [How primitives
    work][jax-primitives] tutorial.
 
-3. Finally, the C++ and CUDA code implementing our XLA op live in the
-   `src/kepler_jax/src` directory. The `pybind11_kernel_helpers.h` and
-   `kernel_helpers.h` headers are boilerplate necessary for building in the
-   interface. The rest of the files include the code specific for this
-   implementation, but I'll describe this in more detail below.
+3. Finally, the C++ and CUDA code implementing our XLA op live in the `lib`
+   directory. The `pybind11_kernel_helpers.h` and `kernel_helpers.h` headers are
+   boilerplate necessary for building in the interface. The rest of the files
+   include the code specific for this implementation, but I'll describe this in
+   more detail below.
 
 ## Defining an XLA custom call on the CPU
+
+The algorithm for our example problem is is implemented in the `lib/kepler.h`
 
 As described in the [XLA documentation][xla-custom], the signature for a CPU XLA
 custom call in C++ is:
@@ -194,4 +196,4 @@ and that's it!
 [jaxlib]: https://github.com/google/jax/tree/master/jaxlib "jaxlib source code"
 [keplers-equation]: https://en.wikipedia.org/wiki/Kepler%27s_equation "Kepler's equation"
 [stan-cpp]: https://dfm.io/posts/stan-c++/ "Using external C++ functions with PyStan & radial velocity exoplanets"
-[kepler-h]: https://github.com/dfm/extending-jax/blob/main/src/kepler_jax/src/kepler.h
+[kepler-h]: https://github.com/dfm/extending-jax/blob/main/lib/kepler.h
