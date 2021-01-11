@@ -344,8 +344,10 @@ In summary, we will define a `jax.core.Primitive` object with an "abstract
 evaluation" rule (see `src/kepler_jax/kepler_jax.py` for all the details)
 following the primitives tutorial. Then, we'll add a "translation rule" and a
 "JVP rule". We're lucky in this case, and we don't need to add a "transpose
-rule", since JAX can actually work that out by itself (our JVP is linear in the
-tangents).
+rule". JAX can actually work that out automatically, since our primitive is not
+itself used in the calculation of the output tangents. This won't always be
+true, and the [How primitives work][jax-primitives] tutorial includes an example
+of what to do in that case.
 
 Before defining these rules, we need to register the custom call target with
 JAX. To do that, we import our compiled `cpu_ops` extension module from above
