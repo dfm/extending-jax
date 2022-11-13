@@ -79,9 +79,9 @@ def _kepler_translation(ctx, mean_anom, ecc, *, platform="cpu"):
 
     # We dispatch a different call depending on the dtype
     if np_dtype == np.float32:
-        op_name = platform.encode() + b"_kepler_f32"
+        op_name = platform + "_kepler_f32"
     elif np_dtype == np.float64:
-        op_name = platform.encode() + b"_kepler_f64"
+        op_name = platform + "_kepler_f64"
     else:
         raise NotImplementedError(f"Unsupported dtype {np_dtype}")
 
@@ -110,7 +110,7 @@ def _kepler_translation(ctx, mean_anom, ecc, *, platform="cpu"):
         opaque = gpu_ops.build_kepler_descriptor(size)
 
         return custom_call(
-            op_name,
+            op_name
             # Output types
             out_types=[dtype, dtype],
             # The inputs:
