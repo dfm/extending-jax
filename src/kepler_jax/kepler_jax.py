@@ -110,7 +110,7 @@ def _kepler_translation(ctx, mean_anom, ecc, *, platform="cpu"):
         opaque = gpu_ops.build_kepler_descriptor(size)
 
         return custom_call(
-            op_name
+            op_name,
             # Output types
             out_types=[dtype, dtype],
             # The inputs:
