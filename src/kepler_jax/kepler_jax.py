@@ -8,8 +8,9 @@ import numpy as np
 from jax import numpy as jnp
 from jax.lib import xla_client
 from jax import core, dtypes, lax
-from jax.interpreters import ad, batching, xla
+from jax.interpreters import ad, batching, xla, mlir
 from jax.abstract_arrays import ShapedArray
+from jaxlib.mhlo_helpers import custom_call
 
 # Register the CPU XLA custom calls
 from . import cpu_ops
@@ -26,11 +27,10 @@ else:
     for _name, _value in gpu_ops.registrations().items():
         xla_client.register_custom_call_target(_name, _value, platform="gpu")
 
-xops = xla_client.ops
-
-
 # This function exposes the primitive to user code and this is the only
 # public-facing function in this module
+
+
 def kepler(mean_anom, ecc):
     # We're going to apply array broadcasting here since the logic of our op
     # is much simpler if we require the inputs to all have the same shapes
@@ -59,51 +59,45 @@ def _kepler_abstract(mean_anom, ecc):
 # We also need a translation rule to convert the function into an XLA op. In
 # our case this is the custom XLA op that we've written. We're wrapping two
 # translation rules into one here: one for the CPU and one for the GPU
-def _kepler_translation(c, mean_anom, ecc, *, platform="cpu"):
-    # The inputs have "shapes" that provide both the shape and the dtype
-    mean_anom_shape = c.get_shape(mean_anom)
-    ecc_shape = c.get_shape(ecc)
+def _kepler_translation(ctx, mean_anom, ecc, *, platform="cpu"):
 
-    # Extract the dtype and shape
-    dtype = mean_anom_shape.element_type()
-    dims = mean_anom_shape.dimensions()
-    assert ecc_shape.element_type() == dtype
-    assert ecc_shape.dimensions() == dims
+    # Checking that input types and shape agree
+    assert mean_anom.type == ecc.type
+
+    # Extract the numpy type of the inputs
+    mean_anom_aval, ecc_aval = ctx.avals_in
+    np_dtype = np.dtype(mean_anom_aval.dtype)
+
+    # The inputs and outputs all have the same shape and memory layout
+    # so let's predefine this specification
+    dtype = mlir.ir.RankedTensorType(mean_anom.type)
+    dims = dtype.shape
+    layout = tuple(range(len(dims) - 1, -1, -1))
 
     # The total size of the input is the product across dimensions
     size = np.prod(dims).astype(np.int64)
 
-    # The inputs and outputs all have the same shape so let's predefine this
-    # specification
-    shape = xla_client.Shape.array_shape(
-        np.dtype(dtype), dims, tuple(range(len(dims) - 1, -1, -1))
-    )
-
     # We dispatch a different call depending on the dtype
-    if dtype == np.float32:
+    if np_dtype == np.float32:
         op_name = platform.encode() + b"_kepler_f32"
-    elif dtype == np.float64:
+    elif np_dtype == np.float64:
         op_name = platform.encode() + b"_kepler_f64"
     else:
-        raise NotImplementedError(f"Unsupported dtype {dtype}")
+        raise NotImplementedError(f"Unsupported dtype {np_dtype}")
 
     # And then the following is what changes between the GPU and CPU
     if platform == "cpu":
         # On the CPU, we pass the size of the data as a the first input
         # argument
-        return xops.CustomCallWithLayout(
-            c,
+        return custom_call(
             op_name,
+            # Output types
+            out_types=[dtype, dtype],
             # The inputs:
-            operands=(xops.ConstantLiteral(c, size), mean_anom, ecc),
-            # The input shapes:
-            operand_shapes_with_layout=(
-                xla_client.Shape.array_shape(np.dtype(np.int64), (), ()),
-                shape,
-                shape,
-            ),
-            # The output shapes:
-            shape_with_layout=xla_client.Shape.tuple_shape((shape, shape)),
+            operands=[mlir.ir_constant(size), mean_anom, ecc],
+            # Layout specification:
+            operand_layouts=[(), layout, layout],
+            result_layouts=[layout, layout]
         )
 
     elif platform == "gpu":
@@ -111,18 +105,21 @@ def _kepler_translation(c, mean_anom, ecc, *, platform="cpu"):
             raise ValueError(
                 "The 'kepler_jax' module was not compiled with CUDA support"
             )
-
         # On the GPU, we do things a little differently and encapsulate the
         # dimension using the 'opaque' parameter
         opaque = gpu_ops.build_kepler_descriptor(size)
 
-        return xops.CustomCallWithLayout(
-            c,
+        return custom_call(
             op_name,
-            operands=(mean_anom, ecc),
-            operand_shapes_with_layout=(shape, shape),
-            shape_with_layout=xla_client.Shape.tuple_shape((shape, shape)),
-            opaque=opaque,
+            # Output types
+            out_types=[dtype, dtype],
+            # The inputs:
+            operands=[mean_anom, ecc],
+            # Layout specification:
+            operand_layouts=[layout, layout],
+            result_layouts=[layout, layout],
+            # GPU specific additional data
+            backend_config=opaque
         )
 
     raise ValueError(
@@ -188,12 +185,11 @@ _kepler_prim.def_impl(partial(xla.apply_primitive, _kepler_prim))
 _kepler_prim.def_abstract_eval(_kepler_abstract)
 
 # Connect the XLA translation rules for JIT compilation
-xla.backend_specific_translations["cpu"][_kepler_prim] = partial(
-    _kepler_translation, platform="cpu"
-)
-xla.backend_specific_translations["gpu"][_kepler_prim] = partial(
-    _kepler_translation, platform="gpu"
-)
+for platform in ["cpu", "gpu"]:
+    mlir.register_lowering(
+        _kepler_prim,
+        partial(_kepler_translation, platform=platform),
+        platform=platform)
 
 # Connect the JVP and batching rules
 ad.primitive_jvps[_kepler_prim] = _kepler_jvp
