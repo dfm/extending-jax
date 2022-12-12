@@ -5,11 +5,11 @@ __all__ = ["kepler"]
 from functools import partial
 
 import numpy as np
-from jax import numpy as jnp
-from jax.lib import xla_client
 from jax import core, dtypes, lax
-from jax.interpreters import ad, batching, xla, mlir
+from jax import numpy as jnp
 from jax.abstract_arrays import ShapedArray
+from jax.interpreters import ad, batching, mlir, xla
+from jax.lib import xla_client
 from jaxlib.mhlo_helpers import custom_call
 
 # Register the CPU XLA custom calls
@@ -56,16 +56,17 @@ def _kepler_abstract(mean_anom, ecc):
     return (ShapedArray(shape, dtype), ShapedArray(shape, dtype))
 
 
-# We also need a translation rule to convert the function into an XLA op. In
-# our case this is the custom XLA op that we've written. We're wrapping two
-# translation rules into one here: one for the CPU and one for the GPU
-def _kepler_translation(ctx, mean_anom, ecc, *, platform="cpu"):
+# We also need a lowering rule to provide an MLIR "lowering" of out primitive.
+# This provides a mechanism for exposing our custom C++ and/or CUDA interfaces
+# to the JAX XLA backend. We're wrapping two translation rules into one here:
+# one for the CPU and one for the GPU
+def _kepler_lowering(ctx, mean_anom, ecc, *, platform="cpu"):
 
     # Checking that input types and shape agree
     assert mean_anom.type == ecc.type
 
     # Extract the numpy type of the inputs
-    mean_anom_aval, ecc_aval = ctx.avals_in
+    mean_anom_aval, _ = ctx.avals_in
     np_dtype = np.dtype(mean_anom_aval.dtype)
 
     # The inputs and outputs all have the same shape and memory layout
@@ -188,7 +189,7 @@ _kepler_prim.def_abstract_eval(_kepler_abstract)
 for platform in ["cpu", "gpu"]:
     mlir.register_lowering(
         _kepler_prim,
-        partial(_kepler_translation, platform=platform),
+        partial(_kepler_lowering, platform=platform),
         platform=platform)
 
 # Connect the JVP and batching rules

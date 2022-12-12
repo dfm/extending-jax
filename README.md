@@ -361,7 +361,7 @@ for _name, _value in cpu_ops.registrations().items():
     xla_client.register_cpu_custom_call_target(_name, _value)
 ```
 
-Then, the **translation rule** is defined roughly as follows (the one you'll
+Then, the **lowering rule** is defined roughly as follows (the one you'll
 find in the source code is a little more complicated since it supports both CPU
 and GPU translation):
 
@@ -371,7 +371,7 @@ import numpy as np
 from jax.interpreters import mlir
 from jaxlib.mhlo_helpers import custom_call
 
-def _kepler_translation(ctx, mean_anom, ecc):
+def _kepler_lowering(ctx, mean_anom, ecc):
 
     # Checking that input types and shape agree
     assert mean_anom.type == ecc.type
@@ -410,13 +410,15 @@ def _kepler_translation(ctx, mean_anom, ecc):
 
 mlir.register_lowering(
         _kepler_prim,
-        _kepler_cpu_translation,
+        _kepler_lowering,
         platform="cpu")
 ```
 
-There appears to be a lot going on here, but most of it is just typechecking.
+There appears to be a lot going on here, but most of it is just type checking.
 The main meat of it is the `custom_call` function which is a thin convenience
-wrapper around the `mhlo.CustomCallOp` (documented [here](https://www.tensorflow.org/mlir/hlo_ops#mhlocustom_call_mlirmhlocustomcallop)). Here's a summary of its arguments:
+wrapper around the `mhlo.CustomCallOp` (documented
+[here](https://www.tensorflow.org/mlir/hlo_ops#mhlocustom_call_mlirmhlocustomcallop)).
+Here's a summary of its arguments:
 
 - The first argument is the name that you gave your `PyCapsule`
   in the `registrations` dictionary in `lib/cpu_ops.cc`. You can check what
@@ -627,8 +629,10 @@ from kepler_jax import gpu_ops
 for _name, _value in gpu_ops.registrations().items():
     xla_client.register_custom_call_target(_name, _value, platform="gpu")
 
-def _kepler_gpu_translation(ctx, mean_anom, ecc):
+def _kepler_lowering_gpu(ctx, mean_anom, ecc):
     # Most of this function is the same as the CPU version above...
+
+    # ...
 
     # The name of the op is now prefaced with 'gpu' (our choice, see lib/gpu_ops.cc,
     # not a requirement)
@@ -655,11 +659,11 @@ def _kepler_gpu_translation(ctx, mean_anom, ecc):
         result_layouts=[layout, layout],
         # GPU-specific additional data for the kernel
         backend_config=opaque
-        )
+    )
 
 mlir.register_lowering(
         _kepler_prim,
-        _kepler_gpu_translation,
+        _kepler_lowering_gpu,
         platform="gpu")
 ```
 
