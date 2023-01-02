@@ -361,83 +361,81 @@ for _name, _value in cpu_ops.registrations().items():
     xla_client.register_cpu_custom_call_target(_name, _value)
 ```
 
-Then, the **translation rule** is defined roughly as follows (the one you'll
+Then, the **lowering rule** is defined roughly as follows (the one you'll
 find in the source code is a little more complicated since it supports both CPU
 and GPU translation):
 
 ```python
 # src/kepler_jax/kepler_jax.py
 import numpy as np
+from jax.interpreters import mlir
+from jaxlib.mhlo_helpers import custom_call
 
-def _kepler_cpu_translation(c, mean_anom, ecc):
-    # The inputs have "shapes" that provide both the shape and the dtype
-    mean_anom_shape = c.get_shape(mean_anom)
-    ecc_shape = c.get_shape(ecc)
+def _kepler_lowering(ctx, mean_anom, ecc):
 
-    # Extract the dtype and shape
-    dtype = mean_anom_shape.element_type()
-    dims = mean_anom_shape.dimensions()
-    assert ecc_shape.element_type() == dtype
-    assert ecc_shape.dimensions() == dims
+    # Checking that input types and shape agree
+    assert mean_anom.type == ecc.type
+
+    # Extract the numpy type of the inputs
+    mean_anom_aval, ecc_aval = ctx.avals_in
+    np_dtype = np.dtype(mean_anom_aval.dtype)
+
+    # The inputs and outputs all have the same shape and memory layout
+    # so let's predefine this specification
+    dtype = mlir.ir.RankedTensorType(mean_anom.type)
+    dims = dtype.shape
+    layout = tuple(range(len(dims) - 1, -1, -1))
 
     # The total size of the input is the product across dimensions
     size = np.prod(dims).astype(np.int64)
 
-    # The inputs and outputs all have the same shape so let's predefine this
-    # specification
-    shape = xla_client.Shape.array_shape(
-        np.dtype(dtype), dims, tuple(range(len(dims) - 1, -1, -1))
-    )
-
     # We dispatch a different call depending on the dtype
-    if dtype == np.float32:
-        op_name = b"cpu_kepler_f32"
-    elif dtype == np.float64:
-        op_name = b"cpu_kepler_f64"
+    if np_dtype == np.float32:
+        op_name = "cpu_kepler_f32"
+    elif np_dtype == np.float64:
+        op_name = "cpu_kepler_f64"
     else:
-        raise NotImplementedError(f"Unsupported dtype {dtype}")
+        raise NotImplementedError(f"Unsupported dtype {np_dtype}")
 
-    # On the CPU, we pass the size of the data as a the first input
-    # argument
-    return xla_client.ops.CustomCallWithLayout(
-        c,
+    return custom_call(
         op_name,
+        # Output types
+        out_types=[dtype, dtype],
         # The inputs:
-        operands=(xla_client.ops.ConstantLiteral(c, size), mean_anom, ecc),
-        # The input shapes:
-        operand_shapes_with_layout=(
-              xla_client.Shape.array_shape(np.dtype(np.int64), (), ()),
-              shape,
-              shape,
-        ),
-        # The output shapes:
-        shape_with_layout=xla_client.Shape.tuple_shape((shape, shape)),
-    )
+        operands=[mlir.ir_constant(size), mean_anom, ecc],
+        # Layout specification:
+        operand_layouts=[(), layout, layout],
+        result_layouts=[layout, layout]
+        )
 
-xla.backend_specific_translations["cpu"][_kepler_prim] = _kepler_cpu_translation
+mlir.register_lowering(
+        _kepler_prim,
+        _kepler_lowering,
+        platform="cpu")
 ```
 
-There appears to be a lot going on here, but most of it is just typechecking.
-The main meat of it is the `CustomCallWithLayout` function which, as far as I
-can tell, isn't documented anywhere. Here's a summary of its arguments, as best
-as I can tell:
+There appears to be a lot going on here, but most of it is just type checking.
+The main meat of it is the `custom_call` function which is a thin convenience
+wrapper around the `mhlo.CustomCallOp` (documented
+[here](https://www.tensorflow.org/mlir/hlo_ops#mhlocustom_call_mlirmhlocustomcallop)).
+Here's a summary of its arguments:
 
-- The first argument is the XLA builder that you were passed when your
-  translation rule was called.
-
-- The second argument is the name (as `bytes`!) that you gave your `PyCapsule`
+- The first argument is the name that you gave your `PyCapsule`
   in the `registrations` dictionary in `lib/cpu_ops.cc`. You can check what
   names your capsules had by looking at `cpu_ops.registrations().keys()`.
 
-- Then, the following arguments give the input arguments, and the "shapes" of
-  the input and output arrays. In this context, a "shape" is specified by a data
-  type, a tuple defining the size of each dimension (what I would normally call
-  the shape), and a tuple defining the dimension order. In this case, we're
-  requiring that all of our inputs and outputs are of the same "shape".
+- Then, the two following arguments give the "type" of the outputs, and
+  specify the input arguments (operands). In this context, a "type" is
+  specified by a data type defining the size of each dimension (what I
+  would normally call the shape), and the type of the array (e.g. float32).
+  In this case, both our outputs have the same type/shape.
+
+- Finally, with the last two arguments, we specify the memory layout
+  of both input and output buffers.
 
 It's worth remembering that we're expecting the first argument to our function
 to be the size of the arrays, and you'll see that that is included as a
-`ConstantLiteral` parameter (explicitly cast to `int64`).
+`mlir.ir_constant` parameter.
 
 I'm not going to talk about the **JVP rule** here since it's quite problem
 specific, but I've tried to comment the code reasonably thoroughly so check out
@@ -631,15 +629,17 @@ from kepler_jax import gpu_ops
 for _name, _value in gpu_ops.registrations().items():
     xla_client.register_custom_call_target(_name, _value, platform="gpu")
 
-def _kepler_gpu_translation(c, mean_anom, ecc):
+def _kepler_lowering_gpu(ctx, mean_anom, ecc):
     # Most of this function is the same as the CPU version above...
+
+    # ...
 
     # The name of the op is now prefaced with 'gpu' (our choice, see lib/gpu_ops.cc,
     # not a requirement)
-    if dtype == np.float32:
-        op_name = b"gpu_kepler_f32"
-    elif dtype == np.float64:
-        op_name = b"gpu_kepler_f64"
+    if np_dtype == np.float32:
+        op_name = "gpu_kepler_f32"
+    elif np_dtype == np.float64:
+        op_name = "gpu_kepler_f64"
     else:
         raise NotImplementedError(f"Unsupported dtype {dtype}")
 
@@ -648,16 +648,23 @@ def _kepler_gpu_translation(c, mean_anom, ecc):
 
     # The syntax is *almost* the same as the CPU version, but we need to pass the
     # size using 'opaque' rather than as an input
-    return xla_client.ops.CustomCallWithLayout(
-        c,
+    return custom_call(
         op_name,
-        operands=(mean_anom, ecc),
-        operand_shapes_with_layout=(shape, shape),
-        shape_with_layout=xla_client.Shape.tuple_shape((shape, shape)),
-        opaque=opaque,
+        # Output types
+        out_types=[dtype, dtype],
+        # The inputs:
+        operands=[mean_anom, ecc],
+        # Layout specification:
+        operand_layouts=[layout, layout],
+        result_layouts=[layout, layout],
+        # GPU-specific additional data for the kernel
+        backend_config=opaque
     )
 
-xla.backend_specific_translations["gpu"][_kepler_prim] = _kepler_gpu_translation
+mlir.register_lowering(
+        _kepler_prim,
+        _kepler_lowering_gpu,
+        platform="gpu")
 ```
 
 Otherwise, everything else from our CPU implementation doesn't need to change.
