@@ -10,7 +10,7 @@ from jax import numpy as jnp
 from jax.abstract_arrays import ShapedArray
 from jax.interpreters import ad, batching, mlir, xla
 from jax.lib import xla_client
-from jaxlib.mhlo_helpers import custom_call
+from jaxlib.hlo_helpers import custom_call
 
 # Register the CPU XLA custom calls
 from . import cpu_ops
