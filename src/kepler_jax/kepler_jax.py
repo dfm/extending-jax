@@ -7,7 +7,7 @@ from functools import partial
 import numpy as np
 from jax import core, dtypes, lax
 from jax import numpy as jnp
-from jax.abstract_arrays import ShapedArray
+from jax.core import ShapedArray
 from jax.interpreters import ad, batching, mlir, xla
 from jax.lib import xla_client
 from jaxlib.hlo_helpers import custom_call
@@ -16,7 +16,7 @@ from jaxlib.hlo_helpers import custom_call
 from . import cpu_ops
 
 for _name, _value in cpu_ops.registrations().items():
-    xla_client.register_cpu_custom_call_target(_name, _value)
+    xla_client.register_custom_call_target(_name, _value, platform="cpu")
 
 # If the GPU version exists, also register those
 try:
@@ -93,13 +93,13 @@ def _kepler_lowering(ctx, mean_anom, ecc, *, platform="cpu"):
         return custom_call(
             op_name,
             # Output types
-            out_types=[dtype, dtype],
+            result_types=[dtype, dtype],
             # The inputs:
             operands=[mlir.ir_constant(size), mean_anom, ecc],
             # Layout specification:
             operand_layouts=[(), layout, layout],
             result_layouts=[layout, layout]
-        )
+        ).results
 
     elif platform == "gpu":
         if gpu_ops is None:
@@ -113,7 +113,7 @@ def _kepler_lowering(ctx, mean_anom, ecc, *, platform="cpu"):
         return custom_call(
             op_name,
             # Output types
-            out_types=[dtype, dtype],
+            result_types=[dtype, dtype],
             # The inputs:
             operands=[mean_anom, ecc],
             # Layout specification:
@@ -121,7 +121,7 @@ def _kepler_lowering(ctx, mean_anom, ecc, *, platform="cpu"):
             result_layouts=[layout, layout],
             # GPU specific additional data
             backend_config=opaque
-        )
+        ).results
 
     raise ValueError(
         "Unsupported platform; this must be either 'cpu' or 'gpu'"

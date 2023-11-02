@@ -120,7 +120,10 @@ setup(
     packages=find_packages("src"),
     package_dir={"": "src"},
     include_package_data=True,
-    install_requires=["jax", "jaxlib"],
+    install_requires=[
+        "jax>=0.4.16",
+        "jaxlib>=0.4.16"
+    ],
     extras_require={"test": "pytest"},
     ext_modules=extensions,
     cmdclass={"build_ext": CMakeBuildExt},
