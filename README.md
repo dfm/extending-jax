@@ -26,8 +26,9 @@ everything that I'll talk about is covered in more detail somewhere else (even
 if that somewhere is just a comment in some source code), but hopefully this
 summary can point you in the right direction if you have a use case like this.
 
-**A warning**: I'm writing this in January 2021 and much of what I'm talking
-about is based on essentially undocumented APIs that are likely to change.
+**A warning**: I'm writing this in January 2021 (most recent update November 2023; see
+github for the full revision history) and much of what I'm talking about is based on
+essentially undocumented APIs that are likely to change.
 Furthermore, I'm not affiliated with the JAX project and I'm far from an expert
 so I'm sure there are wrong things that I say. I'll try to update this if I
 notice things changing or if I learn of issues, but no promises! So, MIT license
