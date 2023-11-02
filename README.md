@@ -358,7 +358,7 @@ from jax.lib import xla_client
 from kepler_jax import cpu_ops
 
 for _name, _value in cpu_ops.registrations().items():
-    xla_client.register_cpu_custom_call_target(_name, _value)
+    xla_client.register_custom_call_target(_name, _value, platform="cpu")
 ```
 
 Then, the **lowering rule** is defined roughly as follows (the one you'll
@@ -400,13 +400,13 @@ def _kepler_lowering(ctx, mean_anom, ecc):
     return custom_call(
         op_name,
         # Output types
-        out_types=[dtype, dtype],
+        result_types=[dtype, dtype],
         # The inputs:
         operands=[mlir.ir_constant(size), mean_anom, ecc],
         # Layout specification:
         operand_layouts=[(), layout, layout],
         result_layouts=[layout, layout]
-        )
+        ).results
 
 mlir.register_lowering(
         _kepler_prim,
@@ -651,7 +651,7 @@ def _kepler_lowering_gpu(ctx, mean_anom, ecc):
     return custom_call(
         op_name,
         # Output types
-        out_types=[dtype, dtype],
+        result_types=[dtype, dtype],
         # The inputs:
         operands=[mean_anom, ecc],
         # Layout specification:
@@ -659,7 +659,7 @@ def _kepler_lowering_gpu(ctx, mean_anom, ecc):
         result_layouts=[layout, layout],
         # GPU-specific additional data for the kernel
         backend_config=opaque
-    )
+    ).results
 
 mlir.register_lowering(
         _kepler_prim,
