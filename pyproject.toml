@@ -6,7 +6,7 @@ authors = [{ name = "Dan Foreman-Mackey", email = "foreman.mackey@gmail.com" }]
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
 urls = { Homepage = "https://github.com/dfm/extending-jax" }
-dependencies = ["jax>=0.4.16"]
+dependencies = ["jax>=0.4.16", "jaxlib>=0.4.16"]
 dynamic = ["version"]
 
 [project.optional-dependencies]
