@@ -4,13 +4,12 @@ import numpy as np
 import pytest
 
 import jax
-from jax.config import config
 from jax.test_util import check_grads
 
 from kepler_jax import kepler
 
 
-config.update("jax_enable_x64", True)
+jax.config.update("jax_enable_x64", True)
 
 
 @pytest.fixture(params=[np.float32, np.float64])
