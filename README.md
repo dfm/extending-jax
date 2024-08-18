@@ -1,3 +1,8 @@
+> [!WARNING]  
+> The JAX documentation now a supported interface for interfacing with C++ and
+> CUDA libraries. Check out [the official tutorial](https://jax.readthedocs.io/en/latest/ffi.html),
+> which should be preferred to the methods described here.
+
 # Extending JAX with custom C++ and CUDA code
 
 [![Tests](https://github.com/dfm/extending-jax/workflows/Tests/badge.svg)](https://github.com/dfm/extending-jax/actions?query=workflow%3ATests)
